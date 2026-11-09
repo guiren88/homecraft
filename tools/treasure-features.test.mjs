@@ -40,7 +40,8 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const speakMod = await import('../world/speak.js');
 const { speak, pickAudioSource, getVolume, setVolume, createVolumeControl, VOLUME_KEY } = speakMod;
 const quizMod = await import('../world/quiz.js');
-const { QuizCore, buildQuestion, createQuizGate, QUIZ_INTERVAL_MS, QUIZ_PENALTY_MS, QUIZ_QUESTIONS_PER_ROUND } = quizMod;
+const { QuizCore, buildQuestion, buildReviewQuestion, createQuizGate, QUIZ_INTERVAL_MS, QUIZ_PENALTY_MS, QUIZ_QUESTIONS_PER_ROUND, REVIEW_INTERVAL_MS } = quizMod;
+const { MistakeBook, MISTAKE_BOOK_KEY } = await import('../world/mistake-book.js');
 const { HUNT_UNITS } = await import('../world/hunt-data.js');
 
 let n = 0;
@@ -206,6 +207,106 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   ok(overlay.hidden, 'modal closes after praise');
   advance(2999);
   ok(overlay.hidden && gate.core.playMs === 2999, 'next cycle counts up from zero on the wall clock');
+}
+
+// ---------- Mistake book （错题本） ----------
+{
+  ok(REVIEW_INTERVAL_MS === 900000, 'review interval constant is 15 minutes');
+  const store = new Map();
+  const fakeStorage = {
+    getItem: k => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+  };
+  const book = new MistakeBook(fakeStorage);
+  ok(book.size === 0, 'book starts empty');
+  book.add('ball', '球', 1000);
+  book.add('desk', '书桌', 2000);
+  book.add('ball', '球', 3000);
+  ok(book.size === 2 && book.get('ball').wrong === 2, 'repeat misses bump the count');
+  ok(store.has(MISTAKE_BOOK_KEY), 'book persists to storage');
+  const reloaded = new MistakeBook(fakeStorage);
+  ok(reloaded.size === 2 && reloaded.list()[0].word === 'ball', 'book reloads, most-missed first');
+  reloaded.remove('ball');
+  ok(reloaded.size === 1 && !reloaded.has('ball'), 'remove deletes the entry');
+
+  const rq = buildReviewQuestion({ word: 'ball', translation: '球' }, [HUNT_UNITS.u2], () => 0.6);
+  ok(rq && rq.word === 'ball' && rq.options.includes(rq.correctText) && rq.options.length === 3, 'review question targets the book word');
+}
+
+// ---------- Review session flow (every 15 min, first-try correct removes) ----------
+{
+  let seed = 99;
+  const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const store = new Map();
+  const fakeStorage = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+  const book = new MistakeBook(fakeStorage);
+  const w1 = HUNT_UNITS.u2.words[0], w2 = HUNT_UNITS.u2.words[1];
+  book.add(w1.word, w1.translation, 1000);
+  book.add(w2.word, w2.translation, 2000);
+  let fakeNow = 0;
+  const gate = createQuizGate({
+    speak: () => {}, getUnits: () => [HUNT_UNITS.u2],
+    intervalMs: 3600000, penaltyMs: 60000, reviewIntervalMs: 4000,
+    mistakeBook: book, rng, now: () => fakeNow,
+  });
+  const advance = ms => { fakeNow += ms; gate.update(); };
+  gate.update(); // baseline
+  advance(3999);
+  ok(gate.overlay.hidden, 'no review before 15-minute mark (scaled: 4 s)');
+  advance(1);
+  ok(!gate.overlay.hidden, 'review opens when due and the book is non-empty');
+  ok(gate.overlay.querySelector('.qz-title').textContent.includes('错题本'), 'review title shows');
+  const clickCorrect = () => {
+    const q = gate.core.question;
+    [...gate.overlay.querySelectorAll('.qz-options button')].find(b => b.textContent === q.correctText).click();
+    return q;
+  };
+  const clickWrong = () => {
+    const q = gate.core.question;
+    [...gate.overlay.querySelectorAll('.qz-options button')].find(b => b.textContent !== q.correctText).click();
+    return q;
+  };
+  const first = clickCorrect();
+  ok(!book.has(first.word), 'first-try correct removes the word from the book');
+  await new Promise(r => setTimeout(r, 1000));
+  gate.update(); // next review question
+  const second = clickWrong();
+  ok(book.get(second.word)?.wrong === 2, 'wrong answer in review bumps the miss count');
+  advance(60000); // penalty elapses (wall clock)
+  ok(gate.core.state === 'open' && gate.core.question?.word === second.word, 'same review question returns after penalty');
+  clickCorrect();
+  ok(book.has(second.word), 'correct after a penalty retry keeps the word in the book');
+  await new Promise(r => setTimeout(r, 1300));
+  gate.update();
+  ok(gate.overlay.hidden, 'review session closes after the last word');
+  advance(3999);
+  ok(gate.overlay.hidden, 'no review reopens before the next interval even with entries left');
+
+  // Empty book: a due review never opens.
+  let fakeNow2 = 0;
+  const gate2 = createQuizGate({
+    speak: () => {}, getUnits: () => [HUNT_UNITS.u2],
+    intervalMs: 3600000, reviewIntervalMs: 4000,
+    mistakeBook: new MistakeBook({ getItem: () => null, setItem: () => {} }),
+    rng, now: () => fakeNow2,
+  });
+  gate2.update();
+  fakeNow2 += 99999; gate2.update();
+  ok(gate2.overlay.hidden, 'no review when the book is empty');
+
+  // A wrong answer in a regular round lands in the book.
+  const book3 = new MistakeBook({ getItem: () => null, setItem: () => {} });
+  let fakeNow3 = 0;
+  const gate3 = createQuizGate({
+    speak: () => {}, getUnits: () => [HUNT_UNITS.u2],
+    intervalMs: 3000, penaltyMs: 60000, questionsPerRound: 1,
+    mistakeBook: book3, rng, now: () => fakeNow3,
+  });
+  gate3.update();
+  fakeNow3 += 3000; gate3.update();
+  const gq = gate3.core.question;
+  [...gate3.overlay.querySelectorAll('.qz-options button')].find(b => b.textContent !== gq.correctText).click();
+  ok(book3.has(gq.word) && book3.get(gq.word).wrong === 1, 'regular-round miss is recorded in the book');
 }
 
 // ---------- Treasure hunt smoke test (bar + volume + quiz coexist) ----------

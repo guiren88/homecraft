@@ -15,10 +15,13 @@
 // pre-generated clips, and the modal carries the shared volume slider.
 
 import { createVolumeControl } from './speak.js';
+import { MistakeBook } from './mistake-book.js';
 
 export const QUIZ_INTERVAL_MS = 180000; // play time between quizzes: 3 minutes
 export const QUIZ_PENALTY_MS = 60000; // wait after a wrong answer: 1 minute
 export const QUIZ_QUESTIONS_PER_ROUND = 5; // questions per round, all must be answered correctly
+export const REVIEW_INTERVAL_MS = 900000; // play time between mistake-book reviews: 15 minutes
+export const REVIEW_MAX_QUESTIONS = 5; // words per review session
 
 const PRAISE_MS = 1200; // how long "Well done!" shows before the modal closes
 
@@ -70,18 +73,53 @@ export function buildQuestion(units, rng = Math.random, excludeWords = null) {
   };
 }
 
+// Build one review question for a specific mistake-book entry: the target is
+// fixed (that word), distractors come from the unit word pool.
+export function buildReviewQuestion(entry, units, rng = Math.random) {
+  if (!entry?.word || !entry?.translation) return null;
+  const pool = [];
+  for (const u of units || []) for (const w of u.words || []) {
+    if (w.word && w.translation) pool.push(w);
+  }
+  const direction = rng() < 0.25 ? 'zh-en' : 'en-zh';
+  const keyOf = direction === 'en-zh' ? 'translation' : 'word';
+  const correctText = entry[keyOf];
+  const others = shuffle(pool.filter(w => w.word !== entry.word && w[keyOf] !== correctText), rng);
+  const picked = [];
+  const used = new Set([correctText]);
+  for (const w of others) {
+    if (picked.length >= 2) break;
+    if (used.has(w[keyOf])) continue;
+    used.add(w[keyOf]);
+    picked.push(w[keyOf]);
+  }
+  if (picked.length < 2) return null;
+  return {
+    direction,
+    word: entry.word,
+    translation: entry.translation,
+    speakText: direction === 'en-zh' ? entry.word : null,
+    prompt: direction === 'en-zh' ? entry.word : entry.translation,
+    options: shuffle([correctText, ...picked], rng),
+    correctText,
+  };
+}
+
 // DOM-free quiz state machine. tick() is driven by the controller with real
 // elapsed time; `counting` is false while the tab is hidden, so hidden time
 // never counts toward the 3 minutes. States: idle -> open -> penalty ->
 // open (same question) -> open (next question) -> ... -> idle (round
 // complete after questionsPerRound correct answers, timer reset).
 export class QuizCore {
-  constructor({ intervalMs = QUIZ_INTERVAL_MS, penaltyMs = QUIZ_PENALTY_MS, questionsPerRound = QUIZ_QUESTIONS_PER_ROUND } = {}) {
+  constructor({ intervalMs = QUIZ_INTERVAL_MS, penaltyMs = QUIZ_PENALTY_MS, questionsPerRound = QUIZ_QUESTIONS_PER_ROUND, reviewIntervalMs = REVIEW_INTERVAL_MS } = {}) {
     this.intervalMs = intervalMs;
     this.penaltyMs = penaltyMs;
-    this.questionsPerRound = questionsPerRound;
+    this.questionsPerRound = questionsPerRound; // regular round size
+    this.sessionSize = questionsPerRound; // questions in the current session (round or review)
+    this.reviewIntervalMs = reviewIntervalMs;
     this.state = 'idle';
     this.playMs = 0;
+    this.reviewMs = 0; // play time accumulated toward the next mistake-book review
     this.penaltyLeftMs = 0;
     this.question = null;
     this.answered = 0; // correct answers so far in the current round
@@ -95,8 +133,20 @@ export class QuizCore {
     }
     if (this.state !== 'idle' || !counting) return null;
     this.playMs += dtMs;
-    if (this.playMs >= this.intervalMs) { this.state = 'open'; this.answered = 0; return 'open'; }
+    this.reviewMs += dtMs;
+    if (this.playMs >= this.intervalMs) { this.state = 'open'; this.answered = 0; this.sessionSize = this.questionsPerRound; return 'open'; }
     return null;
+  }
+  // A review is due when enough play time passed; the controller only opens
+  // one when the mistake book is non-empty.
+  get reviewDue() { return this.reviewMs >= this.reviewIntervalMs; }
+  resetReviewTimer() { this.reviewMs = 0; }
+  // Start a review session of `count` questions (reuses the round machinery:
+  // answer() then counts progress against `count` via sessionSize).
+  startReview(count) {
+    this.state = 'open';
+    this.answered = 0;
+    this.sessionSize = count;
   }
   setQuestion(q) { this.question = q; }
   // Returns 'correct' (round continues) | 'round-complete' | 'wrong' | null.
@@ -105,7 +155,7 @@ export class QuizCore {
     if (text === this.question.correctText) {
       this.answered += 1;
       this.question = null;
-      if (this.answered >= this.questionsPerRound) {
+      if (this.answered >= this.sessionSize) {
         this.state = 'idle';
         this.playMs = 0;
         this.answered = 0;
@@ -149,8 +199,8 @@ const CSS = `
 // slower than real time and the quiz would arrive late. Hidden-tab spans are
 // excluded by resetting the clock baseline on visibilitychange (rAF also
 // stops while hidden, so no ticks are delivered then anyway).
-export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questionsPerRound, rng = Math.random, now = () => performance.now() } = {}) {
-  const core = new QuizCore({ intervalMs, penaltyMs, questionsPerRound });
+export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questionsPerRound, reviewIntervalMs, reviewMaxQuestions = REVIEW_MAX_QUESTIONS, mistakeBook = new MistakeBook(), rng = Math.random, now = () => performance.now() } = {}) {
+  const core = new QuizCore({ intervalMs, penaltyMs, questionsPerRound, reviewIntervalMs });
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -175,6 +225,7 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
   overlay.querySelector('.qz-vol').appendChild(createVolumeControl());
 
   const el = {
+    title: overlay.querySelector('.qz-title'),
     sub: overlay.querySelector('.qz-sub'),
     prompt: overlay.querySelector('.qz-prompt'),
     options: overlay.querySelector('.qz-options'),
@@ -186,6 +237,9 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
   let praiseUntil = 0;
   let nextAt = 0; // when the next question of the round appears (after a correct answer)
   let usedWords = new Set(); // words already asked in the current round
+  let sessionType = 'round'; // 'round' | 'review'
+  let reviewQueue = []; // mistake-book entries for the current review session
+  let currentHadWrong = false; // the current question was missed at least once
 
   // While the modal is open, game keys never reach the engine: this listener
   // runs in the capture phase, before the engine's own window keydown.
@@ -212,7 +266,9 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
 
   function renderQuestion() {
     const q = core.question;
-    const progress = `第 ${core.answered + 1} / ${core.questionsPerRound} 题 · `;
+    const progress = sessionType === 'review'
+      ? `错题 第 ${core.answered + 1} / ${core.sessionSize} 题 · `
+      : `第 ${core.answered + 1} / ${core.sessionSize} 题 · `;
     el.sub.textContent = progress + (q.direction === 'en-zh' ? 'What does this word mean? 这个词是什么意思？' : '哪个是它的英语？点一点！');
     el.prompt.textContent = q.prompt;
     el.msg.textContent = '';
@@ -222,8 +278,15 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
   }
 
   function presentNextQuestion() {
-    const q = buildQuestion(getUnits(), rng, usedWords);
-    if (!q) { // no usable question bank: end the round gracefully
+    currentHadWrong = false;
+    let q = null;
+    if (sessionType === 'review') {
+      const entry = reviewQueue[core.answered];
+      if (entry) q = buildReviewQuestion(entry, getUnits(), rng);
+    } else {
+      q = buildQuestion(getUnits(), rng, usedWords);
+    }
+    if (!q) { // no usable question bank: end the session gracefully
       core.state = 'idle'; core.playMs = 0; core.answered = 0;
       overlay.hidden = true;
       return;
@@ -235,29 +298,59 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
   }
 
   function openQuiz() {
+    sessionType = 'round';
+    el.title.textContent = '⭐ Question time! 答题时间 ⭐';
     core.answered = 0;
     usedWords = new Set();
     overlay.hidden = false;
     presentNextQuestion(); // hides the overlay again if no question can be built
   }
 
+  // Open a mistake-book review session. Returns false (and does nothing)
+  // when the book is empty.
+  function openReview() {
+    if (!mistakeBook.size) return false;
+    sessionType = 'review';
+    el.title.textContent = '📕 错题本复习时间';
+    reviewQueue = mistakeBook.list().slice(0, reviewMaxQuestions);
+    core.startReview(reviewQueue.length);
+    core.resetReviewTimer();
+    usedWords = new Set();
+    overlay.hidden = false;
+    presentNextQuestion();
+    return core.state !== 'idle';
+  }
+
   function onAnswer(text, btn) {
+    const q = core.question; // capture before answer() clears it
     const result = core.answer(text);
-    if (result === 'correct') {
+    if (result === 'correct' || result === 'round-complete') {
       btn.classList.add('qz-right');
       for (const b of el.options.children) b.disabled = true;
-      el.msg.textContent = `Well done! ⭐ 答对啦！（已答对 ${core.answered} / ${core.questionsPerRound}）`;
-      speak?.('Well done!');
-      nextAt = performance.now() + 900; // brief cheer, then the next question
-    } else if (result === 'round-complete') {
-      btn.classList.add('qz-right');
-      for (const b of el.options.children) b.disabled = true;
-      el.msg.textContent = `Well done! ⭐⭐ ${core.questionsPerRound} 道题全部答对，太棒了！`;
-      speak?.('Well done!');
-      praiseUntil = performance.now() + PRAISE_MS;
+      // In a review, a word leaves the book only when answered correctly on
+      // the first try; if it needed a penalty retry it stays for next time.
+      const mastered = sessionType === 'review' && !currentHadWrong;
+      if (sessionType === 'review' && q) {
+        if (mastered) mistakeBook.remove(q.word);
+      }
+      if (result === 'correct') {
+        el.msg.textContent = sessionType === 'review'
+          ? (mastered ? 'Well done! ⭐ 答对啦！这个词学会了，从错题本划掉 ✓' : 'Well done! ⭐ 答对啦！（这个词下次复习还会再出现）')
+          : `Well done! ⭐ 答对啦！（已答对 ${core.answered} / ${core.sessionSize}）`;
+        speak?.('Well done!');
+        nextAt = performance.now() + 900; // brief cheer, then the next question
+      } else {
+        el.msg.textContent = sessionType === 'review'
+          ? '复习完成！🎉 错题本里的词又学会了一些'
+          : `Well done! ⭐⭐ ${core.sessionSize} 道题全部答对，太棒了！`;
+        speak?.('Well done!');
+        praiseUntil = performance.now() + PRAISE_MS;
+      }
     } else if (result === 'wrong') {
+      currentHadWrong = true;
+      if (q) mistakeBook.add(q.word, q.translation);
       for (const b of el.options.children) b.disabled = true;
-      el.msg.textContent = '不对哦，再想一想 🤔';
+      el.msg.textContent = '不对哦，再想一想 🤔（这个词记进错题本了）';
       speak?.('Try again!');
     }
   }
@@ -274,7 +367,9 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
   return {
     core,
     overlay,
+    mistakeBook,
     openNow: openQuiz, // for tests / manual triggering
+    openReviewNow: openReview, // for tests / manual triggering
     // Seconds until the next quiz while idle; null while a quiz is up.
     nextInSeconds() {
       if (core.state !== 'idle') return null;
@@ -296,13 +391,22 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questio
         return;
       }
       const counting = typeof document === 'undefined' || document.visibilityState !== 'hidden';
+      const prevState = core.state;
       const event = core.tick(dtMs, counting && overlay.hidden);
       if (event === 'open') openQuiz();
+      // Mistake-book review: every REVIEW_INTERVAL_MS of play, when the book
+      // has entries. A regular round opening on the same tick goes first;
+      // the review then opens as soon as that round finishes.
+      if (overlay.hidden && core.state === 'idle' && core.reviewDue && mistakeBook.size) {
+        openReview();
+      }
       if (core.state === 'penalty') {
         el.count.hidden = false;
         el.count.textContent = `⏳ ${core.penaltySeconds()} 秒后可以再试`;
-      } else if (core.state === 'open' && el.count.hidden === false && !overlay.hidden && !praiseUntil) {
-        // Penalty just ended: the same question, options reshuffled.
+      } else if (prevState === 'penalty' && core.state === 'open' && !overlay.hidden) {
+        // Penalty just ended (detected by the state transition itself, so a
+        // single long frame that crosses the whole wait still works): the
+        // same question, options reshuffled and re-enabled.
         el.count.hidden = true;
         el.msg.textContent = '再试一次，你可以的！';
         renderOptions();

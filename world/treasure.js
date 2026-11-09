@@ -14,6 +14,7 @@ import { HUNT_CHAPTERS } from './hunt-steps.js';
 import { STATIONS } from './layout.js';
 import { speak, createVolumeControl } from './speak.js';
 import { createQuizGate } from './quiz.js';
+import { MistakeBook } from './mistake-book.js';
 
 // Live English-app URL (Vercel), taken from the repo's About/homepage link.
 export const HUNT_APP_URL = 'https://daughter-english-app.vercel.app';
@@ -37,6 +38,7 @@ const CSS = `
 #treasure-bar .tb-title{font-weight:700;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #treasure-bar .tb-stars{font-size:14px;white-space:nowrap}
 #treasure-bar .tb-quiztime{font-size:13px;color:#c5e1a5;white-space:nowrap}
+#treasure-bar .tb-book{font-size:13px;color:#ffccbc;white-space:nowrap}
 #treasure-bar button{font:inherit;cursor:pointer;border:0;border-radius:9px;padding:6px 12px;
   background:#7cb342;color:#fff;font-weight:600}
 #treasure-bar button.tb-ghost{background:rgba(255,255,255,.14);font-weight:500}
@@ -78,6 +80,7 @@ export function createTreasureHunt(app) {
       <span class="tb-title">🧭 Treasure Hunt 英语寻宝</span>
       <span class="tb-stars"></span>
       <span class="tb-quiztime" title="距离下一道题"></span>
+      <span class="tb-book" title="错题本里还没学会的词"></span>
       <span class="tb-vol"></span>
       <button type="button" class="tb-collapse" aria-label="收起">–</button>
     </div>
@@ -275,15 +278,19 @@ export function createTreasureHunt(app) {
   // Mandatory quiz gate (world/quiz.js): every 3 minutes of play it blocks
   // the game until a vocabulary question is answered correctly. Questions
   // come from the active chapter's unit, or U2 + U5 when none is active.
+  const mistakeBook = new MistakeBook();
   const quiz = createQuizGate({
     speak,
     getUnits: () => (unit ? [unit] : Object.values(HUNT_UNITS)),
+    mistakeBook,
   });
 
   renderPicker();
 
   const quizTimeEl = $('.tb-quiztime');
+  const bookEl = $('.tb-book');
   let lastQuizSecond = -1;
+  let lastBookSize = -1;
 
   return {
     update(dt) {
@@ -295,6 +302,10 @@ export function createTreasureHunt(app) {
           quizTimeEl.textContent = remain == null ? '' :
             `⏱ 下一题 ${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')}`;
         }
+      }
+      if (mistakeBook.size !== lastBookSize) {
+        lastBookSize = mistakeBook.size;
+        if (bookEl) bookEl.textContent = lastBookSize ? `📕 错题 ${lastBookSize}` : '';
       }
       if (!player?.pos) return;
       if (mode === 'play' && hasTarget) {
