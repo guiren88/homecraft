@@ -11,9 +11,13 @@
 //      (selection adapted from daughter-english-app/src/utils/speech.js).
 //
 // Volume is shared by every speak() caller and persisted in localStorage
-// ('homecraft_volume', 0..1, default 1). createVolumeControl() renders the
-// same slider component for the quest bar and the quiz modal; moving either
-// updates the other and the volume of anything already playing.
+// ('homecraft_volume', 0..5 = 0%..500%, default 1 = 100%). createVolumeControl()
+// renders the same slider component for the quest bar and the quiz modal;
+// moving either updates the other and the volume of anything already playing.
+// Above 100%: local clips are boosted through a WebAudio GainNode (an
+// HTMLAudioElement alone cannot exceed 1.0). Remote fallback audio and
+// speechSynthesis cannot be boosted (cross-origin media through WebAudio
+// would be silenced, and utterance.volume caps at 1), so they clamp to 100%.
 
 import { AUDIO_CLIPS } from './audio-manifest.js';
 
@@ -28,22 +32,23 @@ export function pickAudioSource(text) {
   return { kind: 'remote', urls: words <= 3 ? [youdao, baidu] : [baidu] };
 }
 
-// ---------- Shared volume ----------
+// ---------- Shared volume (0..5, i.e. 0%..500%) ----------
 export const VOLUME_KEY = 'homecraft_volume';
-const clamp01 = v => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 1));
+export const VOLUME_MAX = 5;
+const clampVol = v => Math.min(VOLUME_MAX, Math.max(0, Number.isFinite(v) ? v : 1));
 function loadVolume() {
   try {
     const raw = typeof localStorage !== 'undefined' && localStorage.getItem(VOLUME_KEY);
-    return raw == null || raw === '' ? 1 : clamp01(parseFloat(raw));
+    return raw == null || raw === '' ? 1 : clampVol(parseFloat(raw));
   } catch { return 1; }
 }
 let volume = loadVolume();
 const volumeListeners = new Set();
 export function getVolume() { return volume; }
 export function setVolume(v) {
-  volume = clamp01(Number(v));
+  volume = clampVol(Number(v));
   try { localStorage.setItem(VOLUME_KEY, String(volume)); } catch { /* private mode */ }
-  if (audioEl) { try { audioEl.volume = volume; } catch { /* ignore */ } }
+  applyVolumes();
   for (const fn of volumeListeners) { try { fn(volume); } catch { /* ignore */ } }
 }
 export function onVolumeChange(fn) {
@@ -54,6 +59,7 @@ export function onVolumeChange(fn) {
 const VOL_CSS = `
 .vol-control{display:inline-flex;align-items:center;gap:6px;font-size:15px}
 .vol-control input[type=range]{width:92px;accent-color:#7cb342;cursor:pointer}
+.vol-control .vol-pct{min-width:3.4em;font-size:13px;color:#5b4636}
 `;
 let volStyleDone = false;
 export function createVolumeControl() {
@@ -71,12 +77,16 @@ export function createVolumeControl() {
   const slider = document.createElement('input');
   slider.type = 'range';
   slider.min = '0';
-  slider.max = '100';
+  slider.max = String(VOLUME_MAX * 100);
+  slider.step = '5';
   slider.value = String(Math.round(volume * 100));
   slider.setAttribute('aria-label', '朗读音量');
+  const pct = document.createElement('span');
+  pct.className = 'vol-pct';
+  pct.textContent = `${Math.round(volume * 100)}%`;
   slider.addEventListener('input', () => setVolume(slider.value / 100));
-  onVolumeChange(v => { slider.value = String(Math.round(v * 100)); });
-  label.append(icon, slider);
+  onVolumeChange(v => { slider.value = String(Math.round(v * 100)); pct.textContent = `${Math.round(v * 100)}%`; });
+  label.append(icon, slider, pct);
   return label;
 }
 
@@ -112,7 +122,7 @@ function synthSpeak(text) {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 0.85;
     u.pitch = 1.0;
-    u.volume = volume;
+    u.volume = Math.min(1, volume); // utterance.volume cannot exceed 1
     const voice = bestEnglishVoice();
     if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'en-US';
     window.speechSynthesis.speak(u);
@@ -120,12 +130,48 @@ function synthSpeak(text) {
 }
 
 // ---------- Playback ----------
-let audioEl = null; // single reusable element: a new speak() stops the old one
+// Two reusable elements: localEl for same-origin clips (boostable past 100%
+// via WebAudio), remoteEl for cross-origin fallback audio (direct playback,
+// capped at 100% — routing it through WebAudio without CORS would silence it).
+let localEl = null;
+let remoteEl = null;
+let audioCtx = null;
+let gainNode = null;
+let boosted = false;
+
+function applyVolumes() {
+  try {
+    if (remoteEl) remoteEl.volume = Math.min(1, volume);
+    if (localEl) localEl.volume = boosted ? 1 : Math.min(1, volume);
+    if (gainNode) gainNode.gain.value = volume;
+  } catch { /* ignore */ }
+}
+
+function ensureBoost() {
+  if (boosted) { try { audioCtx?.resume?.(); } catch { /* ignore */ } return; }
+  try {
+    const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+    if (!AC || !localEl) return;
+    audioCtx = new AC();
+    const src = audioCtx.createMediaElementSource(localEl);
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = volume;
+    src.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    boosted = true;
+    localEl.volume = 1;
+    audioCtx.resume?.();
+  } catch { /* direct playback still works, capped at 100% */ }
+}
+
+function stopEl(el) {
+  if (!el) return;
+  try { el.pause(); el.removeAttribute('src'); } catch { /* ignore */ }
+  el.onerror = null;
+}
 function stopCurrent() {
-  if (audioEl) {
-    try { audioEl.pause(); audioEl.removeAttribute('src'); } catch { /* ignore */ }
-    audioEl.onerror = null;
-  }
+  stopEl(localEl);
+  stopEl(remoteEl);
   try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
 }
 
@@ -135,15 +181,19 @@ export function speak(text) {
   stopCurrent();
   const { urls } = pickAudioSource(t);
   if (!urls.length || typeof Audio === 'undefined') { synthSpeak(t); return; }
-  if (!audioEl) audioEl = new Audio();
   let i = 0;
   const tryNext = () => {
     if (i >= urls.length) { synthSpeak(t); return; }
     const url = urls[i++];
-    audioEl.onerror = tryNext;
-    audioEl.src = url;
-    try { audioEl.volume = volume; } catch { /* ignore */ }
-    const p = audioEl.play();
+    const isLocal = !/^https?:\/\//i.test(url);
+    if (isLocal) { if (!localEl) localEl = new Audio(); } else if (!remoteEl) remoteEl = new Audio();
+    const el = isLocal ? localEl : remoteEl;
+    stopEl(isLocal ? remoteEl : localEl);
+    el.onerror = tryNext;
+    el.src = url;
+    applyVolumes();
+    if (isLocal) ensureBoost();
+    const p = el.play();
     if (p && typeof p.catch === 'function') p.catch(tryNext);
   };
   tryNext();

@@ -88,6 +88,14 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   s1.dispatchEvent(new dom.window.Event('input'));
   ok(getVolume() === 0.25 && localStorage.getItem(VOLUME_KEY) === '0.25', 'slider change persists');
   ok(s2.value === '25', 'second slider reflects the shared setting');
+  // Boost range: slider goes to 500% and values above 1 persist unclamped.
+  ok(s1.max === '500', 'slider max is 500%');
+  s1.value = '300';
+  s1.dispatchEvent(new dom.window.Event('input'));
+  ok(getVolume() === 3 && localStorage.getItem(VOLUME_KEY) === '3', 'volume above 100% persists');
+  ok(c1.querySelector('.vol-pct').textContent === '300%', 'percentage readout shows 300%');
+  setVolume(99);
+  ok(getVolume() === 5, 'volume clamps at 500%');
   setVolume(1);
 }
 
