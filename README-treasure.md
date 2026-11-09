@@ -12,7 +12,7 @@
 - **中文提示** 默认不显示，点一下才展开。
 - U5 章节会随着步数切换世界时间：morning → day → dusk → night，结束切回 day。
 - 进度存在浏览器 `localStorage`（键 `homecraft_hunt_progress`）：星星总数、各章完成情况、未完成章节的步数（下次可继续）。
-- 通关后有回到英语学习站的链接。链接地址是 `world/treasure.js` 顶部的常量 **`HUNT_APP_URL`**，目前默认指向英语站的 GitHub 仓库；拿到 Vercel 线上地址后改这一行即可。
+- 通关后有回到英语学习站的链接。链接地址是 `world/treasure.js` 顶部的常量 **`HUNT_APP_URL`**，已指向英语站的 Vercel 线上地址 https://daughter-english-app.vercel.app（以仓库 About 栏的主页链接为准）。
 
 ## 数据管道（单词/句子不在这边手抄）
 

@@ -13,9 +13,8 @@ import { HUNT_UNITS } from './hunt-data.js';
 import { HUNT_CHAPTERS } from './hunt-steps.js';
 import { STATIONS } from './layout.js';
 
-// TODO(owner): replace with the live English-app URL (Vercel) when known.
-// Until then this points at the app's repository.
-export const HUNT_APP_URL = 'https://github.com/guiren88/daughter-english-app';
+// Live English-app URL (Vercel), taken from the repo's About/homepage link.
+export const HUNT_APP_URL = 'https://daughter-english-app.vercel.app';
 
 const STORE_KEY = 'homecraft_hunt_progress';
 const ARRIVE_DIST = 3; // metres, 2D distance to the step target
