@@ -1,9 +1,12 @@
 {
   "version": 1,
-  "name": "My Home",
+  "name": "Treasure Home",
   "url": "",
   "logo": "assets/favicon.png",
   "intro": "",
-  "lang": ["zh", "en"],
+  "lang": [
+    "zh",
+    "en"
+  ],
   "homecraft": true
 }
