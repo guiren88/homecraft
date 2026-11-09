@@ -5,6 +5,8 @@ import { buildForest } from '@engine/world/landscape.js';
 import { defineHouseBlocks, surfaceAt, buildPool, buildShell } from './house.js';
 import { furnish } from './furnish.js';
 import { buildOuter } from './outer.js';
+import { buildBuildings } from './buildings.js';
+import { buildIslet } from './islet.js';
 import { buildMountain } from './mountain.js';
 import { buildRoofAccess } from './roof-access.js';
 import { createStainless } from './stainless.js';
@@ -22,15 +24,20 @@ export function build({ grid, layer, materials, stage }) {
   buildShell(grid);
   const forest = buildForest(grid, layer, FOREST);
   const furn = furnish({ layer });
+  // The children's buildings (farm, classroom, castle, maze, playground,
+  // treehouse) are grid blocks plus furniture in the furnish batch.
+  buildBuildings({ grid, batch: furn.batches.static, obstacles: furn.obstacles, lighting: furn.lighting });
   // The pier and sailboat, the mountain and the roof's outside stair are
-  // ground of their own, outside the block grid.
+  // ground of their own, outside the block grid. So are the bridge, the
+  // islet and its lighthouse, south of the bay.
   const outer = buildOuter(layer, materials), mountain = buildMountain(layer, materials), roofAccess = buildRoofAccess(layer, materials);
-  stage.scene.add(outer.group, mountain.group, roofAccess.group);
+  const islet = buildIslet(layer, materials);
+  stage.scene.add(outer.group, mountain.group, roofAccess.group, islet.group);
   return {
     batches: furn.batches, planes: furn.planes, obstacles: furn.obstacles, lights: furn.lights, bakes: furn.lighting,
     hotspots: furn.hotspots, animated: furn.animated, surfaces: furn.surfaces, forest,
-    sites: [outer, mountain], sitesAfter: [roofAccess],
-    named: { outer, mountain, roofAccess, drawMap },
+    sites: [outer, mountain, islet], sitesAfter: [roofAccess],
+    named: { outer, mountain, roofAccess, islet, drawMap },
   };
 }
 

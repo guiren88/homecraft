@@ -60,6 +60,13 @@ export const PORTAL = null;
 // A two-block door in the garage's north wall, out to the back and the mountain.
 export const BACKDOOR = { x0: 13, x1: 15 };
 
+// The children's farm on the west lawn: the fence stands on the perimeter
+// cells of this rect (x0/x1 and z0/z1 are fence CELL indices), with a
+// two-cell gate in the south fence. Built in world/buildings.js; the
+// animals' wander area and fence blockers derive from it in
+// world/critter-logic.js.
+export const FARM = { x0: -33, x1: -22, z0: 4, z1: 14, gate: { x0: -28, x1: -26 } };
+
 export const SPAWN = { x: 0.5, z: 5.8, heading: Math.PI };
 
 // Each station is something in the house you can walk up to. `at` is where the
@@ -82,6 +89,24 @@ export const STATIONS = [
   { id: 'mailbox', name: '留言', en: 'Mailbox', icon: 'mail', at: [MAILBOX.x, MAILBOX.z + 1.2], look: [MAILBOX.x, MAILBOX.z] },
   // The 'portal' station is removed together with PORTAL above (hidden on
   // this site). Restore both to re-enable visiting other worlds.
+  // The children's buildings (world/buildings.js, world/islet.js): scene-only
+  // stations in the style of 'mountain', so the places are discoverable
+  // landmarks and ready-made hunt locations. No cards of their own.
+  { id: 'farm', name: '农场', en: 'Farm', at: [-27, 16.5], look: [-27.5, 8], page: false,
+    show: [[-27, 11, 25], [-28, 1, 8]], showPortrait: [[-27, 15, 29], [-28, 1, 8]] },
+  { id: 'classroom', name: '英语小课堂', en: 'Classroom', at: [8.5, 29], look: [8.5, 24], page: false,
+    show: [[8.5, 9, 37], [8.5, 1, 24]], showPortrait: [[8.5, 12, 40], [8.5, 1, 24]] },
+  { id: 'castle', name: '城堡', en: 'Castle', at: [31, 11.5], look: [31, 4], page: false,
+    show: [[31, 15, 24], [31, 2, 4]], showPortrait: [[31, 19, 28], [31, 2, 4]] },
+  { id: 'treehouse', name: '树屋', en: 'Treehouse', at: [29, 20.6], look: [29, 24], page: false,
+    show: [[21, 9, 32], [29, 5, 24]], showPortrait: [[20, 12, 35], [29, 5, 24]] },
+  { id: 'maze', name: '迷宫', en: 'Maze', at: [-23.4, 23], look: [-30, 22], page: false,
+    show: [[-30, 19, 37], [-30, 0, 22]], showPortrait: [[-30, 24, 40], [-30, 0, 22]] },
+  { id: 'playground', name: '游乐场', en: 'Playground', at: [20, 21.2], look: [20, 24.5], page: false,
+    show: [[20, 8, 34], [20, 1, 24]], showPortrait: [[20, 11, 37], [20, 1, 24]] },
+  // On the islet south of the bay; its ground is the islet site's deck (y 0).
+  { id: 'lighthouse', name: '灯塔', en: 'Lighthouse', at: [18, 34.8], look: [18, 38.5], page: false,
+    show: [[18, 11, 53], [18, 4, 37]], showPortrait: [[18, 15, 57], [18, 4, 37]] },
 ];
 
 const inside = (r, x, z) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;

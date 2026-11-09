@@ -7,7 +7,7 @@
 // heading h faces (sin h, cos h), the same convention as the player
 // (engine/world/player.js turnTowards uses heading = atan2(dx, dz)).
 
-import { ISLAND, POOL, HOUSE } from './layout.js';
+import { ISLAND, POOL, HOUSE, FARM } from './layout.js';
 
 export const MOUNT_RANGE = 2; // metres from the player to offer a mount
 export const RIDE_TURN_RATE = 10; // rad/s, mount heading follows the player's
@@ -91,28 +91,53 @@ export const SPECIES = {
   },
 };
 
-// One entry per individual. maxZ keeps the ducks on the deck strip north of
-// the pool (POOL.z0 is 24) instead of in the water.
+// The land animals live in the farm paddock on the west lawn (FARM in
+// layout.js; fence on its perimeter cells, gate in the south fence). Their
+// wander area is the paddock interior, inset so bodies stay clear of the
+// fence. The ducks are water birds and stay at the pool (see ZONES below).
+export const FARM_IN = { x0: -31.4, x1: -23.6, z0: 5.6, z1: 12.4 };
+
+// The farm fence as four blocker rects (continuous coordinates; a fence
+// cell x spans [x, x + 1)). The south side is split around the gate, so the
+// only way through the fence line for a walking animal is the gate gap.
+export const FARM_FENCE = [
+  { x0: FARM.x0, x1: FARM.x0 + 1, z0: FARM.z0, z1: FARM.z1 + 1, pad: 0.25 }, // west
+  { x0: FARM.x1, x1: FARM.x1 + 1, z0: FARM.z0, z1: FARM.z1 + 1, pad: 0.25 }, // east
+  { x0: FARM.x0, x1: FARM.x1 + 1, z0: FARM.z0, z1: FARM.z0 + 1, pad: 0.25 }, // north
+  { x0: FARM.x0, x1: FARM.gate.x0, z0: FARM.z1, z1: FARM.z1 + 1, pad: 0.25 }, // south, west of the gate
+  { x0: FARM.gate.x1, x1: FARM.x1 + 1, z0: FARM.z1, z1: FARM.z1 + 1, pad: 0.25 }, // south, east of the gate
+];
+
+// One entry per individual. Land animals share the farm rect; maxZ keeps
+// the ducks on the deck strip north of the pool (POOL.z0 is 24) instead of
+// in the water.
 export const ZONES = [
-  { species: 'pig', x: -6, z: 20, r: 6 },
-  { species: 'pig', x: 10, z: 20, r: 5 },
-  { species: 'sheep', x: -29, z: 4, r: 5 },
-  { species: 'sheep', x: 18, z: 20, r: 4 },
-  { species: 'rabbit', x: 31, z: 2, r: 4.5 },
-  { species: 'rabbit', x: -29, z: -6, r: 4 },
-  { species: 'rabbit', x: 0, z: -20, r: 6 },
-  { species: 'chicken', x: 30, z: 10, r: 4 },
-  { species: 'chicken', x: -14, z: -20, r: 5 },
-  { species: 'chicken', x: -16, z: 20, r: 4 },
+  { species: 'pig', rect: FARM_IN },
+  { species: 'pig', rect: FARM_IN },
+  { species: 'sheep', rect: FARM_IN },
+  { species: 'sheep', rect: FARM_IN },
+  { species: 'rabbit', rect: FARM_IN },
+  { species: 'rabbit', rect: FARM_IN },
+  { species: 'rabbit', rect: FARM_IN },
+  { species: 'chicken', rect: FARM_IN },
+  { species: 'chicken', rect: FARM_IN },
+  { species: 'chicken', rect: FARM_IN },
   { species: 'duck', x: -4, z: 22.2, r: 2.2, maxZ: 23.2 },
   { species: 'duck', x: -10, z: 22.2, r: 2, maxZ: 23.2 },
 ];
 
 // ---------- Blocking ----------
-// Rects animals may not enter: the pool water and the house shell.
+// Rects animals may not enter: the pool water, the house shell, the farm
+// fence (except through the gate), the farm shed and troughs, and the farm's
+// shade-tree trunk.
 export const BLOCKERS = [
   { ...POOL, pad: 0.3 },
   { ...HOUSE, pad: 0.2 },
+  ...FARM_FENCE,
+  { x0: -32, x1: -29, z0: 5, z1: 8, pad: 0.2 }, // the shelter shed
+  { x0: -30, x1: -28, z0: 5.4, z1: 6.2, pad: 0.15 }, // the feed trough
+  { x0: -24.5, x1: -23.3, z0: 6, z1: 6.8, pad: 0.15 }, // the water trough
+  { x0: -26, x1: -25, z0: 7, z1: 8, pad: 0.2 }, // the shade-tree trunk
 ];
 
 export const inRect = (x, z, r, pad = 0) =>
@@ -159,37 +184,60 @@ export const headingTo = (x, z, tx, tz) => Math.atan2(tx - x, tz - z);
 export const cameraHeading = yaw => Math.atan2(-Math.sin(yaw), -Math.cos(yaw));
 
 // ---------- Animals ----------
+// A zone is either a rect { rect } (the farm paddock) or a disc
+// { x, z, r, maxZ? } (the ducks' pool-deck strip).
+export const zoneCentre = zone => zone.rect
+  ? { x: (zone.rect.x0 + zone.rect.x1) / 2, z: (zone.rect.z0 + zone.rect.z1) / 2 }
+  : { x: zone.x, z: zone.z };
+
+export const inZone = (zone, x, z) => zone.rect
+  ? x >= zone.rect.x0 && x <= zone.rect.x1 && z >= zone.rect.z0 && z <= zone.rect.z1
+  : Math.hypot(x - zone.x, z - zone.z) <= zone.r && z <= (zone.maxZ ?? Infinity);
+
 export function makeAnimals(rng = Math.random) {
   const counts = {};
   return ZONES.map(zone => {
     const def = SPECIES[zone.species];
     const index = counts[zone.species] = (counts[zone.species] || 0) + 1;
+    const c = zoneCentre(zone);
     const a = {
       species: zone.species, def, zone, index,
       alt: def.alts ? def.alts[(index - 1) % def.alts.length] : null,
-      x: zone.x, z: zone.z, heading: rng() * Math.PI * 2,
-      state: 'idle', t: 0.5 + rng() * 2.5, tx: zone.x, tz: zone.z,
+      x: c.x, z: c.z, heading: rng() * Math.PI * 2,
+      state: 'idle', t: 0.5 + rng() * 2.5, tx: c.x, tz: c.z,
       lift: 0, peck: 0, peckT: 1 + rng() * 1.5, moving: false, phase: rng() * Math.PI * 2,
       tilt: 0, speedNow: 0, // ridden gait state, driven by RideController
     };
-    // Spawn a little off the anchor, but never inside a blocked rect.
+    // Spawn somewhere inside the zone, but never inside a blocked rect.
     for (let i = 0; i < 8; i++) {
-      const px = zone.x + (rng() * 2 - 1) * Math.min(1.5, zone.r * 0.4);
-      const pz = Math.min(zone.z + (rng() * 2 - 1) * Math.min(1.5, zone.r * 0.4), zone.maxZ ?? Infinity);
+      let px, pz;
+      if (zone.rect) {
+        px = zone.rect.x0 + rng() * (zone.rect.x1 - zone.rect.x0);
+        pz = zone.rect.z0 + rng() * (zone.rect.z1 - zone.rect.z0);
+      } else {
+        px = zone.x + (rng() * 2 - 1) * Math.min(1.5, zone.r * 0.4);
+        pz = Math.min(zone.z + (rng() * 2 - 1) * Math.min(1.5, zone.r * 0.4), zone.maxZ ?? Infinity);
+      }
       if (!isBlocked(px, pz)) { a.x = px; a.z = pz; break; }
     }
     return a;
   });
 }
 
-// A random point in the animal's home disc (or maxZ-clamped strip) that is
-// not inside a blocked rect; null when every try failed.
+// A random point in the animal's home zone (rect, or disc / maxZ-clamped
+// strip) that is not inside a blocked rect; null when every try failed.
 export function pickWanderTarget(a, rng = Math.random) {
   const { zone } = a;
   for (let i = 0; i < 8; i++) {
-    const ang = rng() * Math.PI * 2, rad = Math.sqrt(rng()) * zone.r;
-    const tx = zone.x + Math.cos(ang) * rad;
-    const tz = Math.min(zone.z + Math.sin(ang) * rad, zone.maxZ ?? Infinity);
+    let tx, tz;
+    if (zone.rect) {
+      tx = zone.rect.x0 + rng() * (zone.rect.x1 - zone.rect.x0);
+      tz = zone.rect.z0 + rng() * (zone.rect.z1 - zone.rect.z0);
+    } else {
+      const ang = rng() * Math.PI * 2, rad = Math.sqrt(rng()) * zone.r;
+      tx = zone.x + Math.cos(ang) * rad;
+      tz = Math.min(zone.z + Math.sin(ang) * rad, zone.maxZ ?? Infinity);
+    }
     if (!isBlocked(tx, tz)) return { x: tx, z: tz };
   }
   return null;
@@ -237,6 +285,15 @@ export function stepAnimal(a, dt, rng = Math.random) {
   if (speed > 0) {
     const step = Math.min(speed * dt, dist);
     const res = blockedMove(a.x, a.z, Math.sin(a.heading) * step, Math.cos(a.heading) * step, { margin: 1.5 });
+    // Zone clamp: an animal that is inside its (rect) zone may not step out
+    // of it — the farm fence is a hard boundary even where blockedMove's
+    // axis-separated tries might slip through the gate gap. An animal that
+    // is OUTSIDE its zone (e.g. dismounted outside the farm) is not clamped:
+    // it walks freely toward its inside target and re-enters where it can
+    // (the gate gap is the only break in the fence blockers).
+    if (a.zone.rect && inZone(a.zone, a.x, a.z) && !inZone(a.zone, res.x, res.z)) {
+      res.x = a.x; res.z = a.z; res.moved = false;
+    }
     a.x = res.x; a.z = res.z; a.moving = res.moved;
     if (!res.moved) { a.state = 'idle'; a.t = 0.8 + rng() * 1.5; a.lift = 0; }
   }

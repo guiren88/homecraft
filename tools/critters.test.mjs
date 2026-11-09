@@ -3,11 +3,11 @@
 // Run: node tools/critters.test.mjs
 import assert from 'node:assert';
 import {
-  SPECIES, ZONES, MOUNT_RANGE, RIDE_TURN_RATE, RIDE_TELEPORT_JUMP,
-  makeAnimals, pickWanderTarget, stepAnimal, blockedMove, isBlocked,
+  SPECIES, ZONES, FARM_IN, MOUNT_RANGE, RIDE_TURN_RATE, RIDE_TELEPORT_JUMP,
+  makeAnimals, pickWanderTarget, stepAnimal, blockedMove, isBlocked, inZone,
   turnToward, headingTo, cameraHeading, wrapAngle, RideController,
 } from '../world/critter-logic.js';
-import { POOL, ISLAND } from '../world/layout.js';
+import { POOL, ISLAND, FARM } from '../world/layout.js';
 
 let n = 0;
 const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - ${name}`); };
@@ -38,12 +38,39 @@ const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed
 {
   const animals = makeAnimals(rng);
   ok(animals.length === 12, 'makeAnimals returns twelve animals');
-  ok(animals.every(a => Math.hypot(a.x - a.zone.x, a.z - a.zone.z) <= a.zone.r + 1e-9),
-    'every animal spawns inside its home disc');
+  ok(animals.every(a => inZone(a.zone, a.x, a.z)), 'every animal spawns inside its home zone');
   ok(animals.every(a => !isBlocked(a.x, a.z)), 'no animal spawns inside the pool or the house');
   ok(animals.filter(a => a.species === 'duck').every(a => a.z < POOL.z0), 'ducks spawn north of the pool');
   const rabbits = animals.filter(a => a.species === 'rabbit');
   ok(rabbits.some(a => a.alt != null) && rabbits.some(a => a.alt == null), 'rabbits have a grey variant');
+}
+
+// ---------- The farm ----------
+{
+  const land = ZONES.filter(z => z.species !== 'duck');
+  ok(land.every(z => z.rect === FARM_IN), 'all ten land animals live in the farm rect');
+  ok(ZONES.filter(z => z.species === 'duck').every(z => !z.rect && z.r > 0), 'ducks keep their pool-deck discs');
+  ok(FARM_IN.x0 > FARM.x0 && FARM_IN.x1 < FARM.x1 + 1 && FARM_IN.z0 > FARM.z0 && FARM_IN.z1 < FARM.z1 + 1,
+    'the wander rect is inset from the fence line');
+
+  // The fence blocks a step across it, but the gate gap lets one through.
+  let r = blockedMove(-24, 12.5, 0, 2, {});
+  ok(!r.moved && r.z === 12.5, 'a step across the south fence is blocked');
+  r = blockedMove(-27, 13, 0, 2, {});
+  ok(r.moved && near(r.z, 15), 'a step through the gate gap passes');
+
+  // The zone clamp: an animal inside the farm, aimed outside, never leaves.
+  const [pig] = makeAnimals(rng).filter(a => a.species === 'pig');
+  pig.x = -27.5; pig.z = 12; pig.tx = -27.5; pig.tz = 18; pig.heading = 0; pig.state = 'walk';
+  for (let i = 0; i < 400; i++) stepAnimal(pig, 0.05, rng);
+  ok(inZone(pig.zone, pig.x, pig.z) && pig.z <= FARM_IN.z1 + 1e-9, 'the clamp keeps a farm animal inside the farm');
+
+  // An animal outside (dismounted there) is not clamped: it walks back in
+  // through the gate.
+  pig.x = -27; pig.z = 17; pig.tx = -27; pig.tz = 8; pig.heading = Math.PI; pig.state = 'walk';
+  let steps = 0;
+  while (pig.z >= 13.5 && steps < 3000) { stepAnimal(pig, 0.05, rng); steps++; }
+  ok(pig.z < 13.5, 'an outside animal walks back in through the gate');
 }
 
 // ---------- Wander targets ----------
@@ -55,12 +82,12 @@ const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed
       const t = pickWanderTarget(a, rng);
       if (!t) continue;
       if (isBlocked(t.x, t.z)) allClear = false;
-      if (Math.hypot(t.x - a.zone.x, t.z - a.zone.z) > a.zone.r + 1e-9) allInZone = false;
+      if (!inZone(a.zone, t.x, t.z)) allInZone = false;
       if (a.species === 'duck' && t.z > 23.2) ducksDry = false;
     }
   }
   ok(allClear, 'wander targets never land inside the pool or the house');
-  ok(allInZone, 'wander targets stay inside the home disc');
+  ok(allInZone, 'wander targets stay inside the home zone');
   ok(ducksDry, 'duck targets keep z <= 23.2, out of the water');
 }
 
@@ -105,7 +132,7 @@ const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed
   pig.state = 'idle'; pig.t = 0;
   stepAnimal(pig, 0.016, rng);
   ok(pig.state === 'walk', 'idle animal picks a target and walks');
-  ok(Math.hypot(pig.tx - pig.zone.x, pig.tz - pig.zone.z) <= pig.zone.r + 1e-9 && !isBlocked(pig.tx, pig.tz),
+  ok(inZone(pig.zone, pig.tx, pig.tz) && !isBlocked(pig.tx, pig.tz),
     'the picked target is in-zone and unblocked');
 
   // Walking straight at a target reaches it and returns to idle.
