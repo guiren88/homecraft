@@ -2,11 +2,13 @@
 //
 // Rules (set by the parent, implemented literally):
 //   - After QUIZ_INTERVAL_MS of actual play, a full-screen quiz appears and
-//     blocks the game until the question is answered correctly.
+//     blocks the game until a round of QUIZ_QUESTIONS_PER_ROUND questions has
+//     been answered correctly — all of them, one after another.
 //   - A wrong answer locks the options for QUIZ_PENALTY_MS, then the SAME
-//     question is asked again (options may reshuffle). Loops until correct.
-//   - There is no way to dismiss the quiz without a correct answer: no close
-//     button, and Escape is swallowed while it is open.
+//     question is asked again (options may reshuffle). Loops until correct,
+//     then the round continues with the next question.
+//   - There is no way to dismiss the quiz before the round is complete: no
+//     close button, and Escape is swallowed while it is open.
 // Questions come from the generated unit data (world/hunt-data.js): the
 // current chapter's unit when a hunt is active, otherwise U2 + U5 combined.
 // Speech goes through world/speak.js, so questions are read aloud with the
@@ -16,6 +18,7 @@ import { createVolumeControl } from './speak.js';
 
 export const QUIZ_INTERVAL_MS = 180000; // play time between quizzes: 3 minutes
 export const QUIZ_PENALTY_MS = 60000; // wait after a wrong answer: 1 minute
+export const QUIZ_QUESTIONS_PER_ROUND = 5; // questions per round, all must be answered correctly
 
 const PRAISE_MS = 1200; // how long "Well done!" shows before the modal closes
 
@@ -31,10 +34,15 @@ function shuffle(arr, rng) {
 // Build one question from unit word lists. direction 'en-zh': hear/see the
 // English, pick the Chinese meaning. 'zh-en': see the Chinese, pick the
 // English word (the answer is never spoken aloud in that direction).
-export function buildQuestion(units, rng = Math.random) {
-  const pool = [];
+export function buildQuestion(units, rng = Math.random, excludeWords = null) {
+  let pool = [];
   for (const u of units || []) for (const w of u.words || []) {
     if (w.word && w.translation) pool.push(w);
+  }
+  // Within one round, do not ask the same word twice (when avoidable).
+  if (excludeWords && excludeWords.size) {
+    const fresh = pool.filter(w => !excludeWords.has(w.word));
+    if (fresh.length >= 3) pool = fresh;
   }
   if (pool.length < 3) return null;
   const target = pool[Math.floor(rng() * pool.length)];
@@ -65,15 +73,18 @@ export function buildQuestion(units, rng = Math.random) {
 // DOM-free quiz state machine. tick() is driven by the controller with real
 // elapsed time; `counting` is false while the tab is hidden, so hidden time
 // never counts toward the 3 minutes. States: idle -> open -> penalty ->
-// open (same question) -> idle (correct, timer reset).
+// open (same question) -> open (next question) -> ... -> idle (round
+// complete after questionsPerRound correct answers, timer reset).
 export class QuizCore {
-  constructor({ intervalMs = QUIZ_INTERVAL_MS, penaltyMs = QUIZ_PENALTY_MS } = {}) {
+  constructor({ intervalMs = QUIZ_INTERVAL_MS, penaltyMs = QUIZ_PENALTY_MS, questionsPerRound = QUIZ_QUESTIONS_PER_ROUND } = {}) {
     this.intervalMs = intervalMs;
     this.penaltyMs = penaltyMs;
+    this.questionsPerRound = questionsPerRound;
     this.state = 'idle';
     this.playMs = 0;
     this.penaltyLeftMs = 0;
     this.question = null;
+    this.answered = 0; // correct answers so far in the current round
   }
   // Returns 'open' on the tick where the quiz should appear, else null.
   tick(dtMs, counting = true) {
@@ -84,17 +95,22 @@ export class QuizCore {
     }
     if (this.state !== 'idle' || !counting) return null;
     this.playMs += dtMs;
-    if (this.playMs >= this.intervalMs) { this.state = 'open'; return 'open'; }
+    if (this.playMs >= this.intervalMs) { this.state = 'open'; this.answered = 0; return 'open'; }
     return null;
   }
   setQuestion(q) { this.question = q; }
-  // Returns 'correct' | 'wrong' | null (not answerable right now).
+  // Returns 'correct' (round continues) | 'round-complete' | 'wrong' | null.
   answer(text) {
     if (this.state !== 'open' || !this.question) return null;
     if (text === this.question.correctText) {
-      this.state = 'idle';
-      this.playMs = 0;
+      this.answered += 1;
       this.question = null;
+      if (this.answered >= this.questionsPerRound) {
+        this.state = 'idle';
+        this.playMs = 0;
+        this.answered = 0;
+        return 'round-complete';
+      }
       return 'correct';
     }
     this.state = 'penalty';
@@ -133,8 +149,8 @@ const CSS = `
 // slower than real time and the quiz would arrive late. Hidden-tab spans are
 // excluded by resetting the clock baseline on visibilitychange (rAF also
 // stops while hidden, so no ticks are delivered then anyway).
-export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = Math.random, now = () => performance.now() } = {}) {
-  const core = new QuizCore({ intervalMs, penaltyMs });
+export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, questionsPerRound, rng = Math.random, now = () => performance.now() } = {}) {
+  const core = new QuizCore({ intervalMs, penaltyMs, questionsPerRound });
   const style = document.createElement('style');
   style.textContent = CSS;
   document.head.appendChild(style);
@@ -168,6 +184,8 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
   };
 
   let praiseUntil = 0;
+  let nextAt = 0; // when the next question of the round appears (after a correct answer)
+  let usedWords = new Set(); // words already asked in the current round
 
   // While the modal is open, game keys never reach the engine: this listener
   // runs in the capture phase, before the engine's own window keydown.
@@ -194,7 +212,8 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
 
   function renderQuestion() {
     const q = core.question;
-    el.sub.textContent = q.direction === 'en-zh' ? 'What does this word mean? 这个词是什么意思？' : '哪个是它的英语？点一点！';
+    const progress = `第 ${core.answered + 1} / ${core.questionsPerRound} 题 · `;
+    el.sub.textContent = progress + (q.direction === 'en-zh' ? 'What does this word mean? 这个词是什么意思？' : '哪个是它的英语？点一点！');
     el.prompt.textContent = q.prompt;
     el.msg.textContent = '';
     el.count.hidden = true;
@@ -202,13 +221,24 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
     renderOptions();
   }
 
-  function openQuiz() {
-    const q = buildQuestion(getUnits(), rng);
-    if (!q) { core.state = 'idle'; core.playMs = 0; return; }
+  function presentNextQuestion() {
+    const q = buildQuestion(getUnits(), rng, usedWords);
+    if (!q) { // no usable question bank: end the round gracefully
+      core.state = 'idle'; core.playMs = 0; core.answered = 0;
+      overlay.hidden = true;
+      return;
+    }
+    usedWords.add(q.word);
     core.setQuestion(q);
-    overlay.hidden = false;
     renderQuestion();
     if (q.speakText) speak?.(q.speakText);
+  }
+
+  function openQuiz() {
+    core.answered = 0;
+    usedWords = new Set();
+    overlay.hidden = false;
+    presentNextQuestion(); // hides the overlay again if no question can be built
   }
 
   function onAnswer(text, btn) {
@@ -216,7 +246,13 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
     if (result === 'correct') {
       btn.classList.add('qz-right');
       for (const b of el.options.children) b.disabled = true;
-      el.msg.textContent = 'Well done! ⭐ 答对啦！';
+      el.msg.textContent = `Well done! ⭐ 答对啦！（已答对 ${core.answered} / ${core.questionsPerRound}）`;
+      speak?.('Well done!');
+      nextAt = performance.now() + 900; // brief cheer, then the next question
+    } else if (result === 'round-complete') {
+      btn.classList.add('qz-right');
+      for (const b of el.options.children) b.disabled = true;
+      el.msg.textContent = `Well done! ⭐⭐ ${core.questionsPerRound} 道题全部答对，太棒了！`;
       speak?.('Well done!');
       praiseUntil = performance.now() + PRAISE_MS;
     } else if (result === 'wrong') {
@@ -252,6 +288,11 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
       if (!wasHidden && praiseUntil && performance.now() >= praiseUntil) {
         praiseUntil = 0;
         overlay.hidden = true;
+        return;
+      }
+      if (!wasHidden && nextAt && performance.now() >= nextAt) {
+        nextAt = 0;
+        presentNextQuestion();
         return;
       }
       const counting = typeof document === 'undefined' || document.visibilityState !== 'hidden';

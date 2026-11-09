@@ -40,7 +40,7 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const speakMod = await import('../world/speak.js');
 const { speak, pickAudioSource, getVolume, setVolume, createVolumeControl, VOLUME_KEY } = speakMod;
 const quizMod = await import('../world/quiz.js');
-const { QuizCore, buildQuestion, createQuizGate, QUIZ_INTERVAL_MS, QUIZ_PENALTY_MS } = quizMod;
+const { QuizCore, buildQuestion, createQuizGate, QUIZ_INTERVAL_MS, QUIZ_PENALTY_MS, QUIZ_QUESTIONS_PER_ROUND } = quizMod;
 const { HUNT_UNITS } = await import('../world/hunt-data.js');
 
 let n = 0;
@@ -108,6 +108,20 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   ok(core.tick(1, true) === 'open' && core.state === 'open', 'quiz triggers at 180 accumulated seconds');
   const hidden = new QuizCore({});
   ok(hidden.tick(999999, false) === null && hidden.playMs === 0, 'hidden time does not accumulate');
+  // A round needs ALL questions correct; a wrong answer keeps the same one.
+  ok(QUIZ_QUESTIONS_PER_ROUND === 5, 'default round is 5 questions');
+  const round = new QuizCore({ questionsPerRound: 3 });
+  round.tick(180000, true);
+  const mk = w => ({ word: w, correctText: `zh-${w}` });
+  round.setQuestion(mk('a'));
+  ok(round.answer('zh-a') === 'correct' && round.state === 'open' && round.answered === 1, 'first correct keeps the round open');
+  round.setQuestion(mk('b'));
+  ok(round.answer('nope') === 'wrong' && round.state === 'penalty' && round.answered === 1, 'wrong answer does not advance the round');
+  round.tick(60000, true);
+  ok(round.state === 'open' && round.question.word === 'b', 'same question returns after the penalty');
+  ok(round.answer('zh-b') === 'correct' && round.answered === 2, 'second correct advances to 2');
+  round.setQuestion(mk('c'));
+  ok(round.answer('zh-c') === 'round-complete' && round.state === 'idle' && round.playMs === 0, 'final correct completes the round and resets the timer');
 }
 
 // ---------- buildQuestion ----------
@@ -137,7 +151,7 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   const gate = createQuizGate({
     speak: t => spoken.push(t),
     getUnits: () => [HUNT_UNITS.u2],
-    intervalMs: 3000, penaltyMs: 60000, rng,
+    intervalMs: 3000, penaltyMs: 60000, questionsPerRound: 2, rng,
     now: () => fakeNow,
   });
   const advance = ms => { fakeNow += ms; gate.update(); };
@@ -176,8 +190,17 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
 
   const rightBtn = [...overlay.querySelectorAll('.qz-options button')].find(b => b.textContent === q.correctText);
   rightBtn.click();
-  ok(gate.core.state === 'idle' && gate.core.playMs === 0, 'correct answer resets the timer');
-  ok(overlay.querySelector('.qz-msg').textContent.includes('Well done'), 'praise is shown');
+  ok(gate.core.state === 'open' && gate.core.answered === 1, 'first correct advances the round, modal stays open');
+  ok(overlay.querySelector('.qz-sub').textContent.includes('第 1 / 2 题'), 'progress shows question 1 of 2');
+  await new Promise(r => setTimeout(r, 1000));
+  gate.update();
+  const q2 = gate.core.question;
+  ok(!!q2 && q2.word !== q.word, 'next question appears and is a different word');
+  ok(overlay.querySelector('.qz-sub').textContent.includes('第 2 / 2 题'), 'progress shows question 2 of 2');
+  const rightBtn2 = [...overlay.querySelectorAll('.qz-options button')].find(b => b.textContent === q2.correctText);
+  rightBtn2.click();
+  ok(gate.core.state === 'idle' && gate.core.playMs === 0, 'final correct completes the round and resets the timer');
+  ok(overlay.querySelector('.qz-msg').textContent.includes('全部答对'), 'round-complete praise is shown');
   await new Promise(r => setTimeout(r, 1300));
   gate.update();
   ok(overlay.hidden, 'modal closes after praise');
