@@ -48,10 +48,15 @@ export const ENTRANCE = { x0: -2, x1: 3 };
 // The mailbox on the terrace, clear of the right front door's open leaf; its
 // door faces the beach (yaw 0 = towards +z).
 export const MAILBOX = { x: 5.0, z: 19.3, yaw: 0 };
-// The portal to other worlds, on the lawn between the mailbox and the pool. It
-// faces the house (yaw π; 0 would face the sea), so from the terrace you walk
-// up to its face with the sea behind it, and visitors step out towards the house.
-export const PORTAL = { x: 8.5, z: 25.5, yaw: Math.PI };
+// The portal to other worlds is HIDDEN on this site (parent's decision,
+// 2026-11-09): the English learning modules only exist in this world, so the
+// child should not wander off to other worlds where they do not apply.
+// createPortal() returns null when PORTAL is falsy, so nothing renders and
+// nothing can be travelled through. To bring the portal back, restore:
+//   export const PORTAL = { x: 8.5, z: 25.5, yaw: Math.PI };
+// (on the lawn between the mailbox and the pool, facing the house) and the
+// 'portal' station entry in STATIONS below.
+export const PORTAL = null;
 // A two-block door in the garage's north wall, out to the back and the mountain.
 export const BACKDOOR = { x0: 13, x1: 15 };
 
@@ -75,8 +80,8 @@ export const STATIONS = [
     show: [[5, 40, 12], [5, 14, -47]], showPortrait: [[5, 68, 36], [5, 15, -49]] },
   // On the terrace; the phone's mail card opens it too.
   { id: 'mailbox', name: '留言', en: 'Mailbox', icon: 'mail', at: [MAILBOX.x, MAILBOX.z + 1.2], look: [MAILBOX.x, MAILBOX.z] },
-  // In front of the portal: walk in, click it, or press F here, to visit other worlds.
-  { id: 'portal', name: '传送门', en: 'Portal', icon: 'portal', at: [PORTAL.x + Math.sin(PORTAL.yaw) * 2.4, PORTAL.z + Math.cos(PORTAL.yaw) * 2.4], look: [PORTAL.x, PORTAL.z] },
+  // The 'portal' station is removed together with PORTAL above (hidden on
+  // this site). Restore both to re-enable visiting other worlds.
 ];
 
 const inside = (r, x, z) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
