@@ -12,6 +12,8 @@
 import { HUNT_UNITS } from './hunt-data.js';
 import { HUNT_CHAPTERS } from './hunt-steps.js';
 import { STATIONS } from './layout.js';
+import { speak, createVolumeControl } from './speak.js';
+import { createQuizGate } from './quiz.js';
 
 // Live English-app URL (Vercel), taken from the repo's About/homepage link.
 export const HUNT_APP_URL = 'https://daughter-english-app.vercel.app';
@@ -20,46 +22,8 @@ const STORE_KEY = 'homecraft_hunt_progress';
 const ARRIVE_DIST = 3; // metres, 2D distance to the step target
 const PARTY_MS = 2600; // how long the success line stays before advancing
 
-// ---------- Speech (adapted from daughter-english-app/src/utils/speech.js) ----------
-// Pick the best natural English voice available, avoid the robotic legacy
-// voices, and read at a kid-friendly rate.
-const US_PREFERRED = [
-  'Microsoft Jenny Online (Natural)', 'Microsoft Aria Online (Natural)',
-  'Microsoft Guy Online (Natural)', 'Ava (Premium)', 'Ava (Enhanced)',
-  'Samantha (Enhanced)', 'Samantha (Premium)', 'Samantha',
-  'Google US English', 'Zoe (Premium)', 'Allison (Enhanced)', 'Susan', 'Victoria',
-];
-const ROBOTIC = ['alex', 'fred', 'albert', 'bad news', 'bahh', 'bells', 'boing',
-  'bubbles', 'cellos', 'deranged', 'good news', 'hysterical', 'pipe organ',
-  'trinoids', 'whisper', 'zarvox'];
-let cachedVoices = [];
-function refreshVoices() {
-  if (!('speechSynthesis' in window)) return;
-  cachedVoices = window.speechSynthesis.getVoices() || [];
-}
-function bestEnglishVoice() {
-  const voices = cachedVoices.length ? cachedVoices : (window.speechSynthesis?.getVoices() || []);
-  const en = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith('en'));
-  if (!en.length) return null;
-  for (const name of US_PREFERRED) {
-    const hit = en.find(v => v.name.toLowerCase().includes(name.toLowerCase()));
-    if (hit) return hit;
-  }
-  const natural = en.find(v => !ROBOTIC.some(bad => v.name.toLowerCase().includes(bad)));
-  return natural || en[0];
-}
-function speak(text) {
-  try {
-    if (!('speechSynthesis' in window) || !text) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.85;
-    u.pitch = 1.0;
-    const voice = bestEnglishVoice();
-    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'en-US';
-    window.speechSynthesis.speak(u);
-  } catch { /* speech is a bonus; never break the hunt */ }
-}
+// Speech lives in world/speak.js (shared with the quiz gate): pre-generated
+// local clips first, online TTS and speechSynthesis only as fallbacks.
 
 // ---------- Styles (world-layer only; engine/style.css is untouched) ----------
 const CSS = `
@@ -100,8 +64,6 @@ function saveStore(data) {
 export function createTreasureHunt(app) {
   const player = app.player;
   const world = app.world;
-  refreshVoices();
-  if ('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged = refreshVoices;
 
   const style = document.createElement('style');
   style.textContent = CSS;
@@ -114,6 +76,7 @@ export function createTreasureHunt(app) {
     <div class="tb-head">
       <span class="tb-title">🧭 Treasure Hunt 英语寻宝</span>
       <span class="tb-stars"></span>
+      <span class="tb-vol"></span>
       <button type="button" class="tb-collapse" aria-label="收起">–</button>
     </div>
     <div class="tb-body">
@@ -155,6 +118,8 @@ export function createTreasureHunt(app) {
     done: $('.tb-done'), doneText: $('.tb-done-text'),
   };
   $('.tb-app').href = HUNT_APP_URL;
+  // Shared reading-volume slider (same setting as the quiz modal's).
+  $('.tb-vol').appendChild(createVolumeControl());
 
   let store = loadStore();
   if (typeof store.totalStars !== 'number') store.totalStars = 0;
@@ -305,10 +270,19 @@ export function createTreasureHunt(app) {
     e.currentTarget.textContent = hidden ? '+' : '–';
   });
 
+  // Mandatory quiz gate (world/quiz.js): every 3 minutes of play it blocks
+  // the game until a vocabulary question is answered correctly. Questions
+  // come from the active chapter's unit, or U2 + U5 when none is active.
+  const quiz = createQuizGate({
+    speak,
+    getUnits: () => (unit ? [unit] : Object.values(HUNT_UNITS)),
+  });
+
   renderPicker();
 
   return {
-    update() {
+    update(dt) {
+      quiz.update(Number.isFinite(dt) ? dt * 1000 : 0);
       if (!player?.pos) return;
       if (mode === 'play' && hasTarget) {
         const dx = player.pos.x - targetX, dz = player.pos.z - targetZ;
