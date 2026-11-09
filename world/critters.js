@@ -4,10 +4,12 @@
 // per species, following world/vertec.js) and wires the kid-facing ride UI.
 //
 // Riding uses the user-approved engine fork patch in engine/world/player.js:
-// player.setSeatY() lifts the avatar onto the animal's back (render only),
-// while this module teleports the player onto the animal every frame and
-// steers the animal toward the camera with W / ArrowUp or the on-screen
-// hold button as the throttle.
+// player.setSeatY() lifts the avatar onto the animal's back (render only).
+// The mount follows the player: while ridden, the player moves with the
+// engine's completely normal controls and the animal is glued under them
+// (see RideController in critter-logic.js), so riding feels exactly like
+// walking — WASD / touch to move, Shift to run, Space to jump. Entering
+// water or flying drops the rider automatically.
 
 import * as THREE from 'three';
 import { floorAt } from './layout.js';
@@ -19,15 +21,14 @@ const CSS = `
   font:17px/1.4 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
 #critter-bar button{font:inherit;font-weight:700;cursor:pointer;border:0;border-radius:999px;
   padding:14px 24px;background:#7cb342;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.35)}
-#critter-bar button.cb-go{background:#558b2f;touch-action:none;user-select:none;-webkit-user-select:none}
 #critter-bar [hidden]{display:none!important}
 `;
 
 export function createCritters(app) {
-  const { stage, player, rig } = app;
+  const { stage, player } = app;
   const rng = Math.random;
   const animals = makeAnimals(rng);
-  const ride = new RideController({ player, getYaw: () => rig?.yaw ?? 0, animals, rng });
+  const ride = new RideController({ player, animals });
 
   // ---- Rendering: one InstancedMesh per species, unit box scaled per part.
   const groups = [];
@@ -68,7 +69,8 @@ export function createCritters(app) {
         if (part.role === 'head' && a.peck) {
           dy -= a.peck * 0.15; dz += a.peck * 0.05; pitch += a.peck * 0.7;
         }
-        const bob = a.moving && !a.def.hops ? Math.sin(a.bobT || 0) * 0.03 : 0;
+        const bob = a.moving && !a.def.hops ? Math.sin(a.bobT || 0) * (a.bobAmp ?? 0.03) : 0;
+        pitch += a.tilt || 0; // ridden mounts lean gently into their motion
         // Rotate the part's local offset by the heading (forward = +z maps
         // to (sin h, cos h)), then place it over the animal's ground spot.
         pos.set(
@@ -95,38 +97,26 @@ export function createCritters(app) {
   bar.innerHTML = `
     <button type="button" class="cb-mount" hidden></button>
     <span class="cb-ridebox" hidden>
-      <button type="button" class="cb-go">🐾 走</button>
       <button type="button" class="cb-off">⬇️ 下来</button>
     </span>`;
   document.body.appendChild(bar);
   const mountBtn = bar.querySelector('.cb-mount');
   const rideBox = bar.querySelector('.cb-ridebox');
-  const goBtn = bar.querySelector('.cb-go');
   const offBtn = bar.querySelector('.cb-off');
 
-  let keyGo = false, btnGo = false;
-  const syncGo = () => ride.setGo(keyGo || btnGo);
   mountBtn.addEventListener('click', () => ride.mount());
   offBtn.addEventListener('click', () => ride.dismount());
-  goBtn.addEventListener('pointerdown', e => { e.preventDefault(); btnGo = true; syncGo(); });
-  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
-    goBtn.addEventListener(type, () => { btnGo = false; syncGo(); });
-  }
-  goBtn.addEventListener('contextmenu', e => e.preventDefault());
 
   // While the quiz modal is up it owns the screen (and the keys); riding
-  // input stays out of its way.
+  // input stays out of its way. Movement keys need no handling here at all:
+  // the engine moves the player and the mount simply follows.
   const quizOpen = () => {
     const ov = document.querySelector('#quiz-overlay');
     return !!ov && !ov.hidden;
   };
   addEventListener('keydown', e => {
     if (quizOpen()) return;
-    if (e.code === 'KeyW' || e.code === 'ArrowUp') { keyGo = true; syncGo(); }
-    else if (e.code === 'KeyF') { if (ride.riding) ride.dismount(); else ride.mount(); }
-  });
-  addEventListener('keyup', e => {
-    if (e.code === 'KeyW' || e.code === 'ArrowUp') { keyGo = false; syncGo(); }
+    if (e.code === 'KeyF') { if (ride.riding) ride.dismount(); else ride.mount(); }
   });
 
   let uiKey = '';
@@ -146,11 +136,18 @@ export function createCritters(app) {
     animals,
     ride,
     update(dt) {
+      ride.update(dt); // first: it sets the ridden animal's gait state
       for (const a of animals) {
         stepAnimal(a, dt, rng);
-        if (a.moving && !a.def.hops) a.bobT = (a.bobT || 0) + dt * 7;
+        if (a.moving && !a.def.hops) {
+          // Wandering animals bob at a fixed rate; a ridden mount's bob
+          // tracks how fast the player is actually moving, and swells a
+          // little with speed.
+          const ridden = a.state === 'ridden';
+          a.bobT = (a.bobT || 0) + dt * (ridden ? 3 + (a.speedNow || 0) * 2.5 : 7);
+          a.bobAmp = ridden ? 0.02 + Math.min(0.03, (a.speedNow || 0) * 0.008) : 0.03;
+        }
       }
-      ride.update(dt);
       for (const a of animals) a.groundY = floorAt(a.x, a.z);
       draw();
       refreshUI();

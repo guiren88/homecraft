@@ -10,7 +10,8 @@
 import { ISLAND, POOL, HOUSE } from './layout.js';
 
 export const MOUNT_RANGE = 2; // metres from the player to offer a mount
-export const RIDE_TURN_RATE = 2.4; // rad/s, steering while ridden
+export const RIDE_TURN_RATE = 10; // rad/s, mount heading follows the player's
+export const RIDE_TELEPORT_JUMP = 8; // m in one frame counts as a teleport, not a step
 const WANDER_TURN_RATE = 2.2; // rad/s while wandering
 const ARRIVE_DIST = 0.25;
 
@@ -169,6 +170,7 @@ export function makeAnimals(rng = Math.random) {
       x: zone.x, z: zone.z, heading: rng() * Math.PI * 2,
       state: 'idle', t: 0.5 + rng() * 2.5, tx: zone.x, tz: zone.z,
       lift: 0, peck: 0, peckT: 1 + rng() * 1.5, moving: false, phase: rng() * Math.PI * 2,
+      tilt: 0, speedNow: 0, // ridden gait state, driven by RideController
     };
     // Spawn a little off the anchor, but never inside a blocked rect.
     for (let i = 0; i < 8; i++) {
@@ -241,16 +243,20 @@ export function stepAnimal(a, dt, rng = Math.random) {
 }
 
 // ---------- Riding ----------
+// The mount follows the player, not the other way round: while ridden, the
+// player keeps the engine's completely normal movement (WASD / arrows /
+// touch, Shift to run, Space to jump, with the engine's own collision), and
+// this controller glues the ANIMAL under the player each frame. No throttle
+// input, no camera steering and no player.teleport anywhere in the ride.
 export class RideController {
-  // player: the engine player (pos, teleport, setSeatY). getYaw: () => the
-  // camera rig's yaw. animals: the shared animal array from makeAnimals().
-  constructor({ player, getYaw, animals, rng = Math.random }) {
+  // player: the engine player (pos, heading, mode, setSeatY).
+  // animals: the shared animal array from makeAnimals().
+  constructor({ player, animals }) {
     this.player = player;
-    this.getYaw = getYaw;
     this.animals = animals;
-    this.rng = rng;
     this.riding = null;
-    this.goHeld = false;
+    this.prevX = 0; this.prevZ = 0; // player position at the previous update
+    this.jumpT = -1; // seconds since the player left the ground, -1 = grounded
   }
 
   nearest() {
@@ -265,55 +271,81 @@ export class RideController {
   }
 
   mount(a = this.nearest()) {
-    if (!a || this.riding) return false;
+    const p = this.player?.pos;
+    if (!a || this.riding || !p) return false;
     this.riding = a;
     a.state = 'ridden'; a.lift = 0; a.peck = 0; a.moving = false;
+    a.tilt = 0; a.speedNow = 0;
+    // Snap the animal under the player, facing the player's way.
+    a.x = p.x; a.z = p.z;
+    if (Number.isFinite(this.player.heading)) a.heading = this.player.heading;
+    this.prevX = p.x; this.prevZ = p.z;
+    this.jumpT = -1;
     this.player.setSeatY?.(a.def.seat);
     return true;
   }
 
+  // Manual or automatic: the player simply steps off where they are; the
+  // animal stays at the spot and resumes wandering after a short pause.
   dismount() {
     const a = this.riding;
     if (!a) return false;
     this.riding = null;
-    this.goHeld = false;
     this.player.setSeatY?.(0);
-    // Step off 1.3 m to the animal's left, else its right, else stay put.
-    const sx = Math.cos(a.heading), sz = -Math.sin(a.heading);
-    const opts = { look: [a.x + Math.sin(a.heading), a.z + Math.cos(a.heading)] };
-    if (!this.player.teleport(a.x + sx * 1.3, a.z + sz * 1.3, opts)) {
-      this.player.teleport(a.x - sx * 1.3, a.z - sz * 1.3, opts);
-    }
+    a.lift = 0; a.tilt = 0; a.speedNow = 0; a.moving = false;
     a.state = 'idle'; a.t = 2; // a short pause before it wanders off again
     return true;
   }
 
-  setGo(held) { this.goHeld = !!held; }
-
+  // dt: seconds since the last update. Runs after player.update in the
+  // engine loop, so player.pos already holds this frame's final position.
   update(dt) {
     const a = this.riding;
-    if (!a) return;
-    a.heading = turnToward(a.heading, cameraHeading(this.getYaw()), RIDE_TURN_RATE * dt);
-    a.moving = false;
-    if (this.goHeld) {
-      let speed = a.def.rideSpeed;
-      if (a.def.hops) {
-        a.phase += dt;
-        const cycle = a.phase % 0.6;
-        if (cycle < 0.3) { speed = 4.4; a.lift = Math.sin(cycle / 0.3 * Math.PI) * 0.3; }
-        else { speed = 0; a.lift = 0; }
+    const p = this.player?.pos;
+    if (!a || !p) return;
+
+    const dist = Math.hypot(p.x - this.prevX, p.z - this.prevZ);
+    const mode = this.player.mode;
+    // Auto-dismount: the animal cannot swim or fly, and a station goTo /
+    // portal teleport is not a step it can follow.
+    if (mode === 'swim' || mode === 'fly' || dist > RIDE_TELEPORT_JUMP) {
+      this.dismount();
+      return;
+    }
+
+    // Glue: exact position copy (any lag would detach the seat, which sits
+    // at player.pos + seatY). Heading converges fast but smoothly.
+    a.x = p.x; a.z = p.z;
+    if (Number.isFinite(this.player.heading)) {
+      a.heading = turnToward(a.heading, this.player.heading, RIDE_TURN_RATE * dt);
+    }
+
+    // Gait from the player's actual motion.
+    const speed = dt > 0 ? dist / dt : 0;
+    a.speedNow = speed;
+    a.moving = dist > 0.0005;
+    // A gentle forward lean while moving (renderer pitch, nose-down).
+    a.tilt = Math.min(0.1, speed * 0.025);
+    // Airborne arc: any species hops a little in sync with the player's jump.
+    let airLift = 0;
+    if (mode === 'air') {
+      if (this.jumpT < 0) this.jumpT = 0;
+      this.jumpT += dt;
+      airLift = Math.sin(Math.min(1, this.jumpT / 0.55) * Math.PI) * 0.22;
+    } else this.jumpT = -1;
+    if (a.def.hops) {
+      // Ridden rabbits trade the big wander hops for small quick bounces
+      // driven by how fast the player is actually moving.
+      let bounce = 0;
+      if (speed > 0.2) {
+        a.phase += dt * (4 + speed * 2);
+        bounce = Math.abs(Math.sin(a.phase)) * 0.1 * Math.min(1, speed / 2);
       }
-      if (speed > 0) {
-        const res = blockedMove(a.x, a.z,
-          Math.sin(a.heading) * speed * dt, Math.cos(a.heading) * speed * dt, { margin: 1 });
-        a.x = res.x; a.z = res.z; a.moving = res.moved;
-      }
-    } else a.lift = 0;
-    // Keep the player seated on the animal. teleport() cancels whatever the
-    // engine's own WASD movement did this frame and snaps to standable
-    // ground; if the spot is unstandable it returns false and we skip.
-    this.player.teleport(a.x, a.z, {
-      look: [a.x + Math.sin(a.heading), a.z + Math.cos(a.heading)],
-    });
+      a.lift = Math.max(bounce, airLift);
+    } else {
+      a.lift = airLift;
+    }
+
+    this.prevX = p.x; this.prevZ = p.z;
   }
 }

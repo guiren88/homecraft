@@ -3,7 +3,7 @@
 // Run: node tools/critters.test.mjs
 import assert from 'node:assert';
 import {
-  SPECIES, ZONES, MOUNT_RANGE, RIDE_TURN_RATE,
+  SPECIES, ZONES, MOUNT_RANGE, RIDE_TURN_RATE, RIDE_TELEPORT_JUMP,
   makeAnimals, pickWanderTarget, stepAnimal, blockedMove, isBlocked,
   turnToward, headingTo, cameraHeading, wrapAngle, RideController,
 } from '../world/critter-logic.js';
@@ -30,7 +30,8 @@ const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed
   for (const z of ZONES) counts[z.species] = (counts[z.species] || 0) + 1;
   ok(counts.pig === 2 && counts.sheep === 2 && counts.rabbit === 3 && counts.chicken === 3 && counts.duck === 2,
     'individual counts per species are 2/2/3/3/2');
-  ok(MOUNT_RANGE === 2 && RIDE_TURN_RATE === 2.4, 'mount range 2 m, ride turn rate 2.4 rad/s');
+  ok(MOUNT_RANGE === 2 && RIDE_TURN_RATE === 10 && RIDE_TELEPORT_JUMP === 8,
+    'mount range 2 m, mount heading follows the player at 10 rad/s, teleport jump 8 m');
 }
 
 // ---------- Spawning ----------
@@ -134,81 +135,124 @@ const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed
   ok(chicken.state === 'idle', 'chicken with a long idle timer stays idle');
 }
 
-// ---------- Riding ----------
-function fakePlayer(x, z, standable = () => true) {
+// ---------- Riding (the mount follows the player) ----------
+function fakePlayer(x, z) {
   return {
-    pos: { x, z }, seat: null, calls: [],
+    pos: { x, z }, heading: 0, mode: 'ground', y: 0, seat: null, teleports: 0,
     setSeatY(v) { this.seat = v; },
-    teleport(tx, tz, opts) {
-      this.calls.push([tx, tz, opts]);
-      if (!standable(tx, tz)) return false;
-      this.pos.x = tx; this.pos.z = tz;
-      return true;
-    },
+    teleport() { this.teleports++; return true; },
   };
 }
 {
   const animals = makeAnimals(rng);
   const pig = animals.find(a => a.species === 'pig');
   const player = fakePlayer(pig.x + 1, pig.z);
-  let yaw = Math.PI; // camera forward = (0, +1), i.e. target heading 0
-  const rc = new RideController({ player, getYaw: () => yaw, animals, rng });
+  const rc = new RideController({ player, animals });
 
   ok(rc.nearest() === pig, 'nearest() finds the pig within 2 m');
   player.pos.x = pig.x + 30;
   ok(rc.nearest() === null && rc.mount() === false, 'no mount when nothing is near');
   player.pos.x = pig.x + 1;
 
+  // Mount snaps the animal onto the player, facing the player's way.
+  const pigSpot = { x: pig.x, z: pig.z };
+  player.heading = 1.3; pig.heading = -2;
   ok(rc.mount() === true && rc.riding === pig, 'mount() takes the nearest animal');
   ok(player.seat === 0.95, 'mount sets seatY to the pig seat height');
   ok(pig.state === 'ridden', 'mounted animal is in the ridden state');
+  ok(pig.x === player.pos.x && pig.z === player.pos.z, 'mount snaps the animal under the player');
+  ok(near(pig.heading, 1.3), 'mount snaps the animal heading to the player heading');
+  ok(Math.hypot(pig.x - pigSpot.x, pig.z - pigSpot.z) > 0.5, 'the animal came to the player, not the reverse');
   ok(rc.mount() === false, 'mounting twice is refused');
 
   // The ridden animal ignores the wander AI.
-  const px = pig.x, pz = pig.z;
   stepAnimal(pig, 1, rng);
-  ok(pig.x === px && pig.z === pz, 'stepAnimal leaves a ridden animal alone');
+  ok(pig.x === player.pos.x && pig.z === player.pos.z, 'stepAnimal leaves a ridden animal alone');
 
-  // Steering: heading turns toward the camera, throttle moves it forward.
-  pig.heading = 1.0;
-  rc.setGo(true);
-  rc.update(0.5);
-  ok(near(pig.heading, 0, 1e-9), 'ridden animal turns to the camera heading at 2.4 rad/s');
-  ok(pig.z > pz && near(pig.x, px, 1e-6), 'held throttle walks the animal along its heading');
-  const last = player.calls[player.calls.length - 1];
-  ok(near(last[0], pig.x) && near(last[1], pig.z), 'player is teleported onto the animal');
-  ok(near(last[2].look[0], pig.x + Math.sin(pig.heading)) && near(last[2].look[1], pig.z + Math.cos(pig.heading)),
-    'teleport look point is ahead of the animal');
-  ok(near(player.pos.x, pig.x) && near(player.pos.z, pig.z), 'player position tracks the animal');
+  // Following: wherever the (engine-driven) player goes, the animal is
+  // exactly underneath, and its heading converges on the player's.
+  player.heading = -0.6;
+  for (let i = 0; i < 30; i++) {
+    player.pos.x += 0.06; player.pos.z -= 0.02;
+    rc.update(1 / 60);
+    assert.equal(pig.x, player.pos.x); assert.equal(pig.z, player.pos.z);
+  }
+  ok(true, 'animal follows the player position exactly every frame');
+  ok(Math.abs(wrapAngle(pig.heading - player.heading)) < 0.01, 'animal heading converges on the player heading');
+  ok(pig.moving && pig.speedNow > 3 && pig.tilt > 0, 'gait speed and forward lean come from the player motion');
+  ok(player.teleports === 0, 'no player.teleport calls during mount and ride');
 
-  // No throttle: the animal stands still but the player stays seated.
-  const callsBefore = player.calls.length;
-  const gx = pig.x, gz = pig.z;
-  rc.setGo(false);
-  rc.update(0.5);
-  ok(pig.x === gx && pig.z === gz && player.calls.length > callsBefore,
-    'without throttle the animal stands and the player stays on');
+  // Standing still: no drift, no lean, no lift.
+  rc.update(1 / 60);
+  ok(!pig.moving && pig.speedNow < 0.2 && pig.tilt === 0 && pig.lift === 0, 'a still rider means a still mount');
 
-  // Turn the camera 90 degrees: forward becomes (-1, 0).
-  yaw = Math.PI / 2;
-  rc.setGo(true);
-  rc.update(2);
-  ok(pig.x < gx - 0.5, 'animal follows the turned camera');
+  // Jump: the animal hops a small arc in sync, then settles on landing.
+  player.mode = 'air';
+  let sawJumpLift = false;
+  for (let i = 0; i < 12; i++) { rc.update(1 / 60); if (pig.lift > 0.1) sawJumpLift = true; }
+  player.mode = 'ground';
+  rc.update(1 / 60);
+  ok(sawJumpLift && pig.lift === 0, 'mount hops while the player is airborne and settles on landing');
 
-  // Dismount: seat cleared, player stepped to the side, animal pauses.
+  // Manual dismount: seat cleared, animal stays exactly where it was.
   const ax = pig.x, az = pig.z;
   ok(rc.dismount() === true && rc.riding === null, 'dismount releases the animal');
-  ok(player.seat === 0, 'dismount zeroes seatY');
-  ok(near(Math.hypot(player.pos.x - ax, player.pos.z - az), 1.3, 1e-9), 'player steps off 1.3 m to the side');
+  ok(player.seat === 0 && player.teleports === 0, 'dismount zeroes seatY and never teleports the player');
+  ok(pig.x === ax && pig.z === az, 'animal stays in place after dismount');
   ok(pig.state === 'idle' && pig.t === 2, 'animal pauses 2 s after dismount');
+  ok(rc.dismount() === false, 'dismounting twice is refused');
+  stepAnimal(pig, 1, rng);
+  ok(pig.state === 'idle' && pig.x === ax && pig.z === az, 'animal still rests during the pause');
+  let guard = 0;
+  while (pig.state !== 'walk' && guard++ < 40) stepAnimal(pig, 0.5, rng);
+  ok(pig.state === 'walk', 'animal resumes wandering after the pause');
 
-  // Dismount with no standable side spot: no crash, player stays.
-  const player2 = fakePlayer(pig.x, pig.z, () => false);
-  const rc2 = new RideController({ player: player2, getYaw: () => 0, animals, rng });
-  player2.pos.x = pig.x + 0.5;
-  ok(rc2.mount() === true, 'second controller mounts the same pig');
-  ok(rc2.dismount() === true && player2.seat === 0, 'unstandable dismount still clears the seat');
-  ok(player2.pos.x === pig.x + 0.5 && player2.pos.z === pig.z, 'player stays put when no side spot is standable');
+  // Auto-dismount in water.
+  const p2 = fakePlayer(pig.x + 0.5, pig.z);
+  const rc2 = new RideController({ player: p2, animals });
+  ok(rc2.mount() === true, 'remount for the swim test');
+  p2.mode = 'swim';
+  rc2.update(1 / 60);
+  ok(rc2.riding === null && p2.seat === 0 && pig.state === 'idle', 'entering water auto-dismounts and zeroes seatY');
+
+  // Auto-dismount when flying.
+  const rc3 = new RideController({ player: p2, animals });
+  p2.mode = 'ground'; p2.pos.x = pig.x; p2.pos.z = pig.z;
+  ok(rc3.mount() === true, 'remount for the fly test');
+  p2.mode = 'fly';
+  rc3.update(1 / 60);
+  ok(rc3.riding === null && p2.seat === 0, 'starting to fly auto-dismounts');
+
+  // Auto-dismount on a >8 m position jump (station goTo / portal teleport).
+  const p4 = fakePlayer(pig.x, pig.z);
+  const rc4 = new RideController({ player: p4, animals });
+  ok(rc4.mount() === true, 'remount for the teleport test');
+  const bx = pig.x, bz = pig.z;
+  p4.pos.x += 20;
+  rc4.update(1 / 60);
+  ok(rc4.riding === null && p4.seat === 0, 'a >8 m position jump auto-dismounts');
+  ok(pig.x === bx && pig.z === bz, 'the mount does not chase a teleport');
+  ok(p4.teleports === 0 && p2.teleports === 0, 'still zero teleport calls across every ride');
+}
+
+// ---------- Ridden rabbit gait ----------
+{
+  const animals = makeAnimals(rng);
+  const rabbit = animals.find(a => a.species === 'rabbit');
+  const player = fakePlayer(rabbit.x, rabbit.z);
+  const rc = new RideController({ player, animals });
+  ok(rc.mount() === true && player.seat === 0.55, 'rabbit mounts with its own seat height');
+  let maxLift = 0;
+  for (let i = 0; i < 60; i++) {
+    player.pos.z += 0.05; // a steady walk south
+    rc.update(1 / 60);
+    maxLift = Math.max(maxLift, rabbit.lift);
+    assert.equal(rabbit.z, player.pos.z);
+  }
+  ok(maxLift > 0.03 && maxLift <= 0.1, 'ridden rabbit bounces small and quick, not the big wander hop');
+  for (let i = 0; i < 5; i++) rc.update(1 / 60);
+  ok(rabbit.lift === 0, 'ridden rabbit settles when the player stops');
+  rc.dismount();
 }
 
 console.log(`\nALL ${n} ASSERTIONS PASSED`);
