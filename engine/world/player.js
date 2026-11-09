@@ -47,6 +47,12 @@ export function createPlayer({ avatar, nav, grid = null, ground = null, onArrive
   // `island` names the outside surface underfoot (null on the house's grid);
   // `level` is the height of whatever the player is standing on.
   let mode = 'ground', island = null, level = 0, pilot = null, standing = null;
+  // LOCAL FORK PATCH (user-approved, for world/critters.js riding): a pure
+  // render offset that lifts the avatar above its ground height while seated
+  // on an animal. It never affects physics, navigation or the y/level state;
+  // setSeatY(0) restores stock behaviour exactly. Keep this hunk when syncing
+  // upstream engine releases.
+  let seatY = 0;
   const velocity = new THREE.Vector3();
   const solidAt = (x, y, z) => !!grid?.type(x, y, z);
   // A web-zip, Spider-Man style: a web shoots from their hand to the point
@@ -691,7 +697,7 @@ export function createPlayer({ avatar, nav, grid = null, ground = null, onArrive
       onBody(eye, 0, 0.575, 0.25);
       return;
     }
-    avatar.root.position.set(pos.x, y, pos.z); avatar.root.rotation.y = heading;
+    avatar.root.position.set(pos.x, y + seatY, pos.z); avatar.root.rotation.y = heading;
     const flying = mode === 'fly', horizontal = flying ? Math.hypot(velocity.x, velocity.z) : speed;
     avatar.update(dt, { speed: flying || mode === 'zip' ? 0 : speed / RUN * (input.run ? 1 : 1.6), run: !flying && input.run && speed > WALK, fly: flying ? Math.min(1, horizontal / FLY) : -1, air: mode === 'air', zip: mode === 'zip' });
     const below = floorBelow(pos.x, pos.z, y + 0.01), lift = y - below.y;
@@ -713,6 +719,8 @@ export function createPlayer({ avatar, nav, grid = null, ground = null, onArrive
 
   return {
     pos, web, update, goTo, follow, walkThrough, visit, cancel, teleport, jump, toggleFly, startFlying, stopFlying, flyTo, zipTo,
+    // LOCAL FORK PATCH (see seatY above): world-layer riding support.
+    setSeatY(v) { seatY = Math.max(0, Number(v) || 0); }, get seatY() { return seatY; },
     enterPool, swimTo, leavePool, toggleDive, flyIntoPool,
     get y() { return y; }, get heading() { return heading; }, get floorY() { return y; },
     get moving() { return speed > 0.3 || !!zip || (mode === 'fly' && velocity.lengthSq() > 0.1) || (mode === 'swim' && Math.hypot(swim.vx, swim.vz) > 0.3); },

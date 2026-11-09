@@ -10,6 +10,7 @@ import { buildRoofAccess } from './roof-access.js';
 import { createStainless } from './stainless.js';
 import { createVertec } from './vertec.js';
 import { createTreasureHunt } from './treasure.js';
+import { createCritters } from './critters.js';
 import { ISLAND, FOREST, COURT, RIM } from './layout.js';
 
 export function build({ grid, layer, materials, stage }) {
@@ -58,11 +59,14 @@ export function setup(app) {
   stage.scene.add(vertec.mesh);
   // English treasure hunt (U2 + U5 pilot): see world/treasure.js.
   const treasure = createTreasureHunt(app);
+  // Roaming farm animals, all rideable: see world/critters.js.
+  const critters = createCritters(app);
   return {
     update(dt) {
       vertec.update(dt, player);
       world.outer.update(dt, stage.camera);
       treasure.update(dt);
+      critters.update(dt);
     },
   };
 }
