@@ -36,6 +36,7 @@ const CSS = `
 #treasure-bar .tb-head{display:flex;align-items:center;gap:8px}
 #treasure-bar .tb-title{font-weight:700;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #treasure-bar .tb-stars{font-size:14px;white-space:nowrap}
+#treasure-bar .tb-quiztime{font-size:13px;color:#c5e1a5;white-space:nowrap}
 #treasure-bar button{font:inherit;cursor:pointer;border:0;border-radius:9px;padding:6px 12px;
   background:#7cb342;color:#fff;font-weight:600}
 #treasure-bar button.tb-ghost{background:rgba(255,255,255,.14);font-weight:500}
@@ -76,6 +77,7 @@ export function createTreasureHunt(app) {
     <div class="tb-head">
       <span class="tb-title">🧭 Treasure Hunt 英语寻宝</span>
       <span class="tb-stars"></span>
+      <span class="tb-quiztime" title="距离下一道题"></span>
       <span class="tb-vol"></span>
       <button type="button" class="tb-collapse" aria-label="收起">–</button>
     </div>
@@ -280,9 +282,20 @@ export function createTreasureHunt(app) {
 
   renderPicker();
 
+  const quizTimeEl = $('.tb-quiztime');
+  let lastQuizSecond = -1;
+
   return {
     update(dt) {
-      quiz.update(Number.isFinite(dt) ? dt * 1000 : 0);
+      quiz.update(); // wall-clock timed inside the gate; frame dt not needed
+      const remain = quiz.nextInSeconds();
+      if (remain !== lastQuizSecond) {
+        lastQuizSecond = remain;
+        if (quizTimeEl) {
+          quizTimeEl.textContent = remain == null ? '' :
+            `⏱ 下一题 ${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')}`;
+        }
+      }
       if (!player?.pos) return;
       if (mode === 'play' && hasTarget) {
         const dx = player.pos.x - targetX, dz = player.pos.z - targetZ;

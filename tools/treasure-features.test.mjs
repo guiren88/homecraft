@@ -133,17 +133,23 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   let seed = 7;
   const rng = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   const spoken = [];
+  let fakeNow = 0;
   const gate = createQuizGate({
     speak: t => spoken.push(t),
     getUnits: () => [HUNT_UNITS.u2],
     intervalMs: 3000, penaltyMs: 60000, rng,
+    now: () => fakeNow,
   });
+  const advance = ms => { fakeNow += ms; gate.update(); };
   const overlay = gate.overlay;
   ok(overlay.hidden, 'overlay starts hidden');
-  gate.update(2999);
+  gate.update(); // first tick only sets the wall-clock baseline
+  advance(2999);
   ok(overlay.hidden, 'overlay still hidden at 2.999 s of play');
-  gate.update(1);
+  ok(gate.nextInSeconds() === 1, 'nextInSeconds reports the remaining second');
+  advance(1);
   ok(!overlay.hidden, 'overlay opens at the interval');
+  ok(gate.nextInSeconds() === null, 'nextInSeconds is null while the quiz is up');
   const q = gate.core.question;
   ok(!!q, 'a question was built');
   if (q.speakText) ok(spoken.includes(q.speakText), 'question word is auto-spoken on open');
@@ -161,9 +167,9 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   wrongBtn.click();
   ok(gate.core.state === 'penalty', 'wrong answer enters penalty state');
   ok([...overlay.querySelectorAll('.qz-options button')].every(b => b.disabled), 'options lock during penalty');
-  gate.update(1000);
+  advance(1000);
   ok(overlay.querySelector('.qz-count').textContent.includes('59'), 'countdown shows 59 s after 1 s');
-  gate.update(59000);
+  advance(59000);
   ok(gate.core.state === 'open', 'penalty ends and the quiz reopens');
   ok(gate.core.question === q, 'the SAME question returns after the penalty');
   ok([...overlay.querySelectorAll('.qz-options button')].every(b => !b.disabled), 'options unlock after the penalty');
@@ -173,10 +179,10 @@ const ok = (cond, name) => { assert.ok(cond, name); n++; console.log(`ok ${n} - 
   ok(gate.core.state === 'idle' && gate.core.playMs === 0, 'correct answer resets the timer');
   ok(overlay.querySelector('.qz-msg').textContent.includes('Well done'), 'praise is shown');
   await new Promise(r => setTimeout(r, 1300));
-  gate.update(0);
+  gate.update();
   ok(overlay.hidden, 'modal closes after praise');
-  gate.update(2999);
-  ok(overlay.hidden && gate.core.playMs === 2999, 'next 3-minute cycle counts from zero');
+  advance(2999);
+  ok(overlay.hidden && gate.core.playMs === 2999, 'next cycle counts up from zero on the wall clock');
 }
 
 // ---------- Treasure hunt smoke test (bar + volume + quiz coexist) ----------

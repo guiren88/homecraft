@@ -124,10 +124,16 @@ const CSS = `
 #quiz-overlay .qz-msg{font-size:19px;min-height:28px;margin-top:8px}
 #quiz-overlay .qz-count{font-size:26px;font-weight:800;color:#ffd54f}
 #quiz-overlay [hidden]{display:none!important}
+#quiz-overlay[hidden]{display:none!important}
 `;
 
-// DOM controller. Options for tests: intervalMs / penaltyMs / rng overrides.
-export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = Math.random } = {}) {
+// DOM controller. Options for tests: intervalMs / penaltyMs / rng / now
+// overrides. Timing is WALL-CLOCK (performance.now deltas), not summed frame
+// dt: the engine caps frame dt at 0.05 s, so on a slow device summed dt runs
+// slower than real time and the quiz would arrive late. Hidden-tab spans are
+// excluded by resetting the clock baseline on visibilitychange (rAF also
+// stops while hidden, so no ticks are delivered then anyway).
+export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = Math.random, now = () => performance.now() } = {}) {
   const core = new QuizCore({ intervalMs, penaltyMs });
   const style = document.createElement('style');
   style.textContent = CSS;
@@ -224,11 +230,24 @@ export function createQuizGate({ speak, getUnits, intervalMs, penaltyMs, rng = M
     if (core.question?.speakText) speak?.(core.question.speakText);
   });
 
+  let lastNow = null;
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { lastNow = null; });
+  }
+
   return {
     core,
     overlay,
     openNow: openQuiz, // for tests / manual triggering
-    update(dtMs) {
+    // Seconds until the next quiz while idle; null while a quiz is up.
+    nextInSeconds() {
+      if (core.state !== 'idle') return null;
+      return Math.max(0, Math.ceil((core.intervalMs - core.playMs) / 1000));
+    },
+    update() {
+      const t = now();
+      const dtMs = lastNow == null ? 0 : Math.max(0, t - lastNow);
+      lastNow = t;
       const wasHidden = overlay.hidden;
       if (!wasHidden && praiseUntil && performance.now() >= praiseUntil) {
         praiseUntil = 0;
