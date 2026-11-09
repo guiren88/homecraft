@@ -24,7 +24,7 @@ const HEADERS = { 'user-agent': 'Homecraft directory check (+https://github.com/
 const LOGO_BYTES = 100 * 1024;
 // The template's grass block (assets/favicon.png as shipped) and name: an
 // untouched template isn't anyone's world yet.
-export const TEMPLATE_LOGO = '55fd4562515e92c53e1bdc8bceccc6cd0b36b4abafef5941d687a36a0e0ade5e';
+export const TEMPLATE_LOGO = 'ba5bd70e67a3a7dcaf56b5ea952836de43fb67522e75bc42cbc85440933d806b';
 const TEMPLATE_NAME = 'My Home';
 
 // Plain text: no markup, no backticks (entries are quoted in pull requests).
