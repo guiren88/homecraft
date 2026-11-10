@@ -54,7 +54,11 @@ async function main() {
       console.log('check-portal: skipped (PORTAL is null in world/layout.js; this site hides its portal).');
     }
     run('node', ['tools/check-mailbox-ui.cjs', 'http://127.0.0.1:4173']);
-    run('node', ['tools/check-listing.mjs', '--url', 'http://127.0.0.1:4173/']);
+    if (PORTAL) {
+      run('node', ['tools/check-listing.mjs', '--url', 'http://127.0.0.1:4173/']);
+    } else {
+      console.log('check-listing: skipped (PORTAL is null in world/layout.js; the --url mode only inspects portal travel).');
+    }
   } finally { server.kill(); }
 }
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) await main();
