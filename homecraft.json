@@ -3,7 +3,10 @@
   "name": "Treasure Home",
   "url": "",
   "logo": "assets/favicon.png",
-  "intro": "",
+  "intro": {
+    "zh": "给二年级女儿的 3D 英语寻宝小岛：按课本线索找宝藏，边玩边学英语。",
+    "en": "A 3D English treasure-hunt island for my Grade 2 daughter — follow clues, find treasure, learn by playing."
+  },
   "lang": [
     "zh",
     "en"
