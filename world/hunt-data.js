@@ -5,6 +5,119 @@
 // data by word and sentence index, so word/sentence content is never copied twice.
 
 export const HUNT_UNITS = {
+  "u1": {
+    "id": "u1",
+    "unit": "Unit 1",
+    "title": "晨间日常动作",
+    "words": [
+      {
+        "word": "morning",
+        "translation": "早晨；上午"
+      },
+      {
+        "word": "up",
+        "translation": "向上"
+      },
+      {
+        "word": "teeth",
+        "translation": "牙齿（tooth复数）"
+      },
+      {
+        "word": "face",
+        "translation": "脸"
+      },
+      {
+        "word": "dressed",
+        "translation": "穿好衣服的"
+      },
+      {
+        "word": "ready",
+        "translation": "准备好的"
+      },
+      {
+        "word": "Mum",
+        "translation": "妈妈"
+      },
+      {
+        "word": "Dad",
+        "translation": "爸爸"
+      },
+      {
+        "word": "school",
+        "translation": "学校"
+      },
+      {
+        "word": "checklist",
+        "translation": "清单"
+      },
+      {
+        "word": "get up",
+        "translation": "起床"
+      },
+      {
+        "word": "brush my teeth",
+        "translation": "刷牙"
+      },
+      {
+        "word": "wash my face",
+        "translation": "洗脸"
+      },
+      {
+        "word": "have breakfast",
+        "translation": "吃早餐"
+      },
+      {
+        "word": "be ready for",
+        "translation": "为……做好准备"
+      }
+    ],
+    "sentences": [
+      {
+        "english": "Good morning.",
+        "chinese": "早上好。"
+      },
+      {
+        "english": "Have breakfast, Shenshen!",
+        "chinese": "申申，吃早餐！"
+      },
+      {
+        "english": "I brush my teeth and then wash my face.",
+        "chinese": "我刷牙然后洗脸。"
+      },
+      {
+        "english": "Yes, Mum!",
+        "chinese": "好的，妈妈！"
+      },
+      {
+        "english": "I'm ready for school, Dad!",
+        "chinese": "爸爸，我准备好去上学了！"
+      }
+    ],
+    "tips": [
+      "黑体为重点单词和句型，请家长帮助贴在课本第9页。",
+      "teeth 是 tooth 的不规则复数形式（单数 tooth，复数 teeth）。",
+      "be ready for 表示“为……做好准备”，后面接名词，例如：I'm ready for school!"
+    ],
+    "story": {
+      "title": "Shenshen's Busy Morning",
+      "titleCn": "申申忙碌的早晨",
+      "coverEmoji": "☀️",
+      "summary": "跟着申申一起度过元气满满的早晨：起床、刷牙洗脸、享用早餐，准备开开心心上学去！",
+      "coreWords": [
+        "morning",
+        "get up",
+        "brush my teeth",
+        "wash my face",
+        "have breakfast",
+        "dressed",
+        "ready",
+        "school",
+        "Mum",
+        "Dad",
+        "checklist"
+      ]
+    }
+  },
   "u2": {
     "id": "u2",
     "unit": "Unit 2",
@@ -138,6 +251,267 @@ export const HUNT_UNITS = {
         "on the shelf",
         "tidy the room",
         "let's"
+      ]
+    }
+  },
+  "u3": {
+    "id": "u3",
+    "unit": "Unit 3",
+    "title": "出行交通方式",
+    "words": [
+      {
+        "word": "car",
+        "translation": "汽车；小汽车"
+      },
+      {
+        "word": "bus",
+        "translation": "公交车；公共汽车"
+      },
+      {
+        "word": "underground",
+        "translation": "地铁（英式，常指伦敦地铁）"
+      },
+      {
+        "word": "metro",
+        "translation": "地铁"
+      },
+      {
+        "word": "foot",
+        "translation": "脚；脚步"
+      },
+      {
+        "word": "London",
+        "translation": "伦敦"
+      },
+      {
+        "word": "bookmark",
+        "translation": "书签"
+      },
+      {
+        "word": "colour",
+        "translation": "涂色；颜色"
+      },
+      {
+        "word": "postcard",
+        "translation": "明信片"
+      },
+      {
+        "word": "cut",
+        "translation": "剪；切"
+      },
+      {
+        "word": "love",
+        "translation": "喜爱；热爱"
+      },
+      {
+        "word": "by car",
+        "translation": "乘汽车"
+      },
+      {
+        "word": "by bus",
+        "translation": "乘公交"
+      },
+      {
+        "word": "on foot",
+        "translation": "步行；走路"
+      },
+      {
+        "word": "on the way",
+        "translation": "在路上"
+      },
+      {
+        "word": "a postcard from London",
+        "translation": "一张来自伦敦的明信片"
+      },
+      {
+        "word": "I see",
+        "translation": "我知道了；我明白了"
+      }
+    ],
+    "sentences": [
+      {
+        "english": "How do you go?",
+        "chinese": "你怎么去？"
+      },
+      {
+        "english": "Go by car?",
+        "chinese": "乘汽车去吗？"
+      },
+      {
+        "english": "Go on foot?",
+        "chinese": "步行去吗？"
+      },
+      {
+        "english": "I go to school by bus.",
+        "chinese": "我乘公交去学校。"
+      },
+      {
+        "english": "I love this red bus.",
+        "chinese": "我喜欢这个红色公交车。"
+      },
+      {
+        "english": "But what's this?",
+        "chinese": "但是这是什么？"
+      },
+      {
+        "english": "Oh, it's the London Underground.",
+        "chinese": "哦，它是伦敦地铁。"
+      }
+    ],
+    "tips": [
+      "请家长帮助将本单元重点贴在课本第21页。",
+      "交通介词固定搭配：乘车用 by（by car, by bus, by metro），步行用 on（on foot，特别注意不用 by）。",
+      "underground 与 metro 都表示“地铁”，英国特别是伦敦常称作 the Underground，上海地铁官方常写为 Metro。",
+      "询问出行交通方式常用疑问句：“How do you go?”（你怎么去？）。"
+    ],
+    "story": {
+      "title": "A Postcard from London",
+      "titleCn": "来自伦敦的明信片",
+      "coverEmoji": "🚌",
+      "summary": "申申收到了一张来自伦敦的精美明信片，上面有大红色的双层巴士和著名的伦敦地铁！快来认识各种有趣的交通方式吧！",
+      "coreWords": [
+        "car",
+        "bus",
+        "underground",
+        "foot",
+        "London",
+        "postcard",
+        "by car",
+        "by bus",
+        "on foot",
+        "love",
+        "How do you go?"
+      ]
+    }
+  },
+  "u4": {
+    "id": "u4",
+    "unit": "Unit 4",
+    "title": "体育运动与热身",
+    "words": [
+      {
+        "word": "sports",
+        "translation": "运动（复数）"
+      },
+      {
+        "word": "run",
+        "translation": "跑；奔跑"
+      },
+      {
+        "word": "football",
+        "translation": "足球"
+      },
+      {
+        "word": "jump",
+        "translation": "跳；跳跃"
+      },
+      {
+        "word": "basketball",
+        "translation": "篮球"
+      },
+      {
+        "word": "ping-pong",
+        "translation": "乒乓球"
+      },
+      {
+        "word": "best",
+        "translation": "最好"
+      },
+      {
+        "word": "out",
+        "translation": "出；在外；出界"
+      },
+      {
+        "word": "have a go",
+        "translation": "试一试"
+      },
+      {
+        "word": "try again",
+        "translation": "再试一次"
+      },
+      {
+        "word": "should",
+        "translation": "应该"
+      },
+      {
+        "word": "board game",
+        "translation": "桌游；棋盘游戏"
+      },
+      {
+        "word": "play sports",
+        "translation": "做运动"
+      },
+      {
+        "word": "play football",
+        "translation": "踢足球"
+      },
+      {
+        "word": "play basketball",
+        "translation": "打篮球"
+      },
+      {
+        "word": "play ping-pong",
+        "translation": "打乒乓球"
+      },
+      {
+        "word": "do a warm-up",
+        "translation": "做热身运动"
+      }
+    ],
+    "sentences": [
+      {
+        "english": "Do our best.",
+        "chinese": "我们竭尽全力。"
+      },
+      {
+        "english": "Wow, you can play ping-pong very well. Can I have a go?",
+        "chinese": "哇，你乒乓球打得非常好。我能试一试吗？"
+      },
+      {
+        "english": "But you should do a warm-up.",
+        "chinese": "但你应该做热身运动。"
+      },
+      {
+        "english": "Oh, no! The ball's out.",
+        "chinese": "哦，不！球出界了。"
+      },
+      {
+        "english": "Try again.",
+        "chinese": "再试一次。"
+      },
+      {
+        "english": "Well done!",
+        "chinese": "做得好！"
+      },
+      {
+        "english": "Let's play football.",
+        "chinese": "我们踢足球吧。"
+      }
+    ],
+    "tips": [
+      "请家长帮助将本单元重点贴在课本第27页。",
+      "球类运动固定搭配：play + 球类名词（中间不加 the），如 play football（踢足球）、play basketball（打篮球）、play ping-pong（打乒乓球）。",
+      "情态动词 can（能/会）和 should（应该）后面都必须接动词原形，如 you can play...、you should do a warm-up。",
+      "运动鼓励与礼貌用语：Do our best.（我们竭尽全力）、Can I have a go?（我能试一试吗？）、Try again.（再试一次）、Well done!（做得好！）"
+    ],
+    "story": {
+      "title": "Do Our Best on Sports Day!",
+      "titleCn": "运动会，我们竭尽全力！",
+      "coverEmoji": "🏓",
+      "summary": "操场上真热闹！跑步、跳远、踢足球、打篮球，还有精彩的乒乓球挑战！快和申申一起做热身运动，勇敢试一试吧！",
+      "coreWords": [
+        "sports",
+        "run",
+        "jump",
+        "football",
+        "basketball",
+        "ping-pong",
+        "do a warm-up",
+        "have a go",
+        "out",
+        "try again",
+        "best",
+        "Well done"
       ]
     }
   },

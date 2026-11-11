@@ -1,4 +1,4 @@
-// Generate world/hunt-data.js for the English treasure hunt (U2 + U5 pilot)
+// Generate world/hunt-data.js for the English treasure hunt (U1–U5)
 // from the daughter-english-app data files — the single source of truth.
 // Usage: node tools/gen-hunt.mjs [path-to-daughter-english-app]
 //   (or set DAUGHTER_APP_DIR; default: /tmp/daughter-english-app, then ../daughter-english-app)
@@ -20,7 +20,7 @@ if (!appDir) {
   process.exit(1);
 }
 
-const UNITS = ['Unit 2', 'Unit 5']; // pilot chapters; add a unit here to generate more
+const UNITS = ['Unit 1', 'Unit 2', 'Unit 3', 'Unit 4', 'Unit 5']; // all of 2A Units 1–5; add a unit here to generate more
 const vocab = JSON.parse(readFileSync(join(appDir, 'src/data/vocabulary.json'), 'utf8'));
 const stories = JSON.parse(readFileSync(join(appDir, 'src/data/stories.json'), 'utf8'));
 const grade = vocab.grade_2a;

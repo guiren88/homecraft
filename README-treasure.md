@@ -1,4 +1,4 @@
-# 英语寻宝试点（U2 + U5）
+# 英语寻宝（2A Unit 1–5）
 
 基于 Homecraft 样板间（examples/terry-home）改编的英语寻宝原型，给二年级上（上海牛津 2A）学到 Unit 5 的孩子玩。根目录站点已经换成样板间的完整世界（房子、主卧、球场、车库、泳池、后山），`examples/` 原样保留，`engine/` 只有一处已批准的骑乘补丁（见“小动物与骑乘”）。
 
@@ -6,11 +6,11 @@
 
 打开页面后，屏幕顶部有 “Treasure Hunt 英语寻宝” 任务栏：
 
-- 先选章节：**U2 · The Mystery of the Messy Room**（5 步）或 **U5 · Rita's Magical Sky Log**（4 步）。
+- 先选章节：**U1 · Shenshen's Busy Morning**（5 步）、**U2 · The Mystery of the Messy Room**（5 步）、**U3 · A Postcard from London**（5 步）、**U4 · Do Our Best on Sports Day!**（5 步）或 **U5 · Rita's Magical Sky Log**（4 步）。
 - 每步给一句英文线索，走到线索说的地方（3 米内）就算找到：得一颗星 ⭐，任务栏会显示这一步的目标词和课本原句，然后自动给下一条线索。
 - **🔊 朗读** 按钮（或每步开始时自动）朗读线索。固定文本全部用预生成录音片段播放（见下面“语音片段”），不再依赖设备自带的机械 TTS 音色；任务栏右上角有**音量滑杆**（0–500%，100% 为原音量；超过 100% 的放大只对预录音片段生效，走 WebAudio 增益，远程备用音源和系统语音封顶 100%），和答题弹窗里的滑杆共用一个设置，存在 `localStorage`（键 `homecraft_volume`）。
 - **中文提示** 默认不显示，点一下才展开。
-- U5 章节会随着步数切换世界时间：morning → day → dusk → night，结束切回 day。
+- U5 章节会随着步数切换世界时间：morning → day → dusk → night，结束切回 day。U1 第一步切到清晨（morning），结束时同样切回 day。
 - 进度存在浏览器 `localStorage`（键 `homecraft_hunt_progress`）：星星总数、各章完成情况、未完成章节的步数（下次可继续）。
 - 通关后有回到英语学习站的链接。链接地址是 `world/treasure.js` 顶部的常量 **`HUNT_APP_URL`**，已指向英语站的 Vercel 线上地址 https://daughter-english-app.vercel.app（以仓库 About 栏的主页链接为准）。
 
@@ -19,7 +19,7 @@
 逻辑在 `world/quiz.js`，从寻宝模块接入：
 
 - 累计游玩满 **3 分钟**（常量 `QUIZ_INTERVAL_MS = 180000`，在 quiz.js 顶部）就弹出全屏答题弹窗，游戏键盘输入被拦截，弹窗没有关闭按钮、按 Esc 也关不掉。
-- 题目从**当前章节的单元词表**出（没选章节时从 U2+U5 合并出）：朗读并显示一个英文词/短语，3 个大按钮选中文意思（约 1/4 概率反过来：显示中文选英文）。
+- 题目从**当前章节的单元词表**出（没选章节时从全部五章合并出）：朗读并显示一个英文词/短语，3 个大按钮选中文意思（约 1/4 概率反过来：显示中文选英文）。
 - 每轮共 **5 道题**（常量 `QUIZ_QUESTIONS_PER_ROUND = 5`），弹窗顶部显示“第 X / 5 题”，同一轮内不重复出同一个词。答对一题进入下一题；**5 题全部答对**才表扬关弹窗、3 分钟重新计时。答错：选项锁定 **60 秒**（常量 `QUIZ_PENALTY_MS = 60000`）并显示倒计时，然后**同一道题**重新出（选项可换顺序），循环直到答对（不计入轮次进度）。
 - 计时只累计页面可见且弹窗关闭的时间；切到后台不计时。
 
@@ -66,7 +66,7 @@
 python3 tools/gen-audio.py   # 收集 hunt-steps 线索 + hunt-data 全部词句 + 答题 UI 字符串，生成 assets/audio/*.mp3 和 world/audio-manifest.js
 ```
 
-当前 65 个片段共约 0.81 MiB，`tools/build.sh` 会把 `assets/` 整目录拷进 dist，已验证 MP3 在构建产物里。
+当前 135 个片段共约 1.51 MiB，`tools/build.sh` 会把 `assets/` 整目录拷进 dist，已验证 MP3 在构建产物里。
 
 ## 数据管道（单词/句子不在这边手抄）
 
@@ -77,7 +77,7 @@ python3 tools/gen-audio.py   # 收集 hunt-steps 线索 + hunt-data 全部词句
 node tools/gen-hunt.mjs [path-to-daughter-english-app]
 ```
 
-它把 grade_2a 的 Unit 2、Unit 5（单元标题、全部词与翻译、全部句子、tips、故事标题/简介/coreWords）生成到 `world/hunt-data.js`。**不要手改 hunt-data.js**，改数据去英语站改，再跑一遍脚本。
+它把 grade_2a 的 Unit 1–5（单元标题、全部词与翻译、全部句子、tips、故事标题/简介/coreWords）生成到 `world/hunt-data.js`。**不要手改 hunt-data.js**，改数据去英语站改，再跑一遍脚本。
 
 手工写的内容只有线索本身，在 `world/hunt-steps.js`：每步只引用生成数据里的词（`word`）和句子序号（`sentence`），外加目标地点和中文提示，以后加 U1/U3/U4 章节也照这个格式加。
 
@@ -87,6 +87,9 @@ node tools/gen-hunt.mjs [path-to-daughter-english-app]
 
 - U2 第 3 步“书架”：这个世界没有独立的书架站。真实书柜是主卧旁秘密房间的整墙书柜（`world/house.js` 用 `bookshelf` 砌的墙），`world/furnish.js` 在那面墙上有 `secret` 热点，所以这一步的到达点用该热点的中心（约 [-15.9, -9.5]，在楼上）。
 - U2 第 4 步“箱子”：用车库（`lab` 站）当储物间，里面有车和钢制储物架。
+- U1 第 2 步“洗脸”：房子里没有卫生间，泳池是世界里唯一的水，所以洗漱安排在泳池边。
+- U3 第 5 步“地铁”：世界里没有地铁，秘密房间是唯一的隐藏地点，所以把“发现地铁”安排在主卧旁的秘密房间（和 U2 第 3 步同一个 `secret` 热点）。
+- U4 第 2 步“乒乓球”：世界里没有乒乓球桌，楼下的工作台（`works` 站）当球桌用；第 5 步“踢足球”用球场（`court` 站），它是全岛的运动场。
 - 其余步都用站点的站立点（STATIONS 的 `at`）：主卧床边 writing、工作台 works、客厅沙发 about、信箱 mailbox、后山 mountain、泳池 pool。
 
 ## 本地运行
@@ -99,8 +102,7 @@ node tools/check-site.mjs       # 项目自带站点检查（元数据/皮肤/�
 ## 没做的事
 
 - `examples/` 没有改；`engine/` 只有一处已批准的本地补丁（`world/player.js` 的 `setSeatY` 骑乘座位高度，见上面“小动物与骑乘”），其余引擎文件未动；样板间是复制到根目录的。
-- 试点本体、语音片段 + 答题闸门 + 音量（含 0–500% 放大）均已推送并上线 GitHub Pages，后续推送会自动重新部署。
-- **只做了 U2 + U5 两章试点**，U1/U3/U4 章节未做。
+- 寻宝本体、语音片段 + 答题闸门 + 音量（含 0–500% 放大）均已推送并上线 GitHub Pages，后续推送会自动重新部署。U1/U3/U4 三章是 2026-11-11 在本地做好的草稿（数据、寻宝步骤、语音片段、文档都已齐），还没推送，等家长确认后推。
 - 引擎自带的环境音效（engine/ui/sound.js）只有开关、没有音量接口，world 层改不到，所以音量滑杆只管朗读语音；环境音量仍用引擎自己的声音按钮开关。
 - 进度只存在本机浏览器 localStorage，没有和英语站的星星系统打通（两个站同域部署后才能共享，这是后续阶段的事）。
 - 本机无头浏览器环境受限，未做真实浏览器游玩截图验证；逻辑做了自动化测试：`tools/treasure-features.test.mjs`（语音选源、音量持久化与生效、答题计时/罚时/同题重出/不可关闭、5 题轮次、错题本记录与 15 分钟复习，共 74 项断言）和 `tools/critters.test.mjs`（动物物种/闲逛/禁区阻挡/农场围栏与大门/区域钳制/骑乘跟随与上下马，共 74 项断言），真实手感请在手机/电脑浏览器上打开确认一次。
